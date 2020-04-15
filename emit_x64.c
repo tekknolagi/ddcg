@@ -152,6 +152,9 @@ enum {
 #define BINARY_REG_RM(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: data |= reg_rm << 8; break;
 
+#define BINARY_REG_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    case op: data |= (rm_imm8 << 8) | (direct(rm_imm8x, dest.reg) << 16); break;
+
 #define BINARY_REG_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: data |= (rm_imm32 << 8) | (direct(rm_imm32x, dest.reg) << 16); break;
 
@@ -169,27 +172,49 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
             len = 3;
         } else if (src.kind == IMM) {
             data = rex(0, dest.reg) | (src.imm << 24);
-            switch (op) {
-                BINARY_OPS(BINARY_REG_IMM32)
-            default:
-                assert(0);
+            int64_t i = src.imm;
+            if (-128 <= i && i < 128) {
+                switch (op) {
+                    BINARY_OPS(BINARY_REG_IMM8)
+                default:
+                    assert(0);
+                }
+                len = 4;
+            } else {
+                switch (op) {
+                    BINARY_OPS(BINARY_REG_IMM32)
+                default:
+                    assert(0);
+                }
+                len = 7;
             }
-            len = 7;
         } else if (src.kind == MEM) {
             if (src.index == -1) {
                 data = rex(dest.reg, src.base);
-                if (src.disp) {
-                    data |= indirect_disp32(dest.reg, src.base, src.disp) << 16;
-                    len = 7;
+                if (src.disp || (src.base & 7) == RBP) {
+                    int64_t i = src.disp;
+                    if (-128 <= i && i < 128) {
+                        data |= indirect_disp8(dest.reg, src.base, src.disp) << 16;
+                        len = 4;
+                    } else {
+                        data |= indirect_disp32(dest.reg, src.base, src.disp) << 16;
+                        len = 7;
+                    }
                 } else {
                     data |= indirect(dest.reg, src.base) << 16;
                     len = 3;
                 }
             } else {
                 data = rex_index(dest.reg, src.base, src.index);
-                if (src.disp) {
-                    data |= indirect_index_disp32(dest.reg, src.base, src.index, src.scale, src.disp) << 16;
-                    len = 8;
+                if (src.disp || (src.base & 7) == RBP) {
+                    int64_t i = src.disp;
+                    if (-128 <= i && i < 128) {
+                        data |= indirect_index_disp8(dest.reg, src.base, src.index, src.scale, src.disp) << 16;
+                        len = 5;
+                    } else {
+                        data |= indirect_index_disp32(dest.reg, src.base, src.index, src.scale, src.disp) << 16;
+                        len = 8;
+                    }
                 } else {
                     data |= indirect_index(dest.reg, src.base, src.index, src.scale) << 16;
                     len = 4;
@@ -217,10 +242,24 @@ void test_asm(void) {
     asm_binary(ADD, reg(RAX), base(RBX));
     asm_binary(ADD, reg(RAX), base_index(RBX, RCX));
     asm_binary(ADD, reg(RAX), base_index_scale(RBX, RCX, X4));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, 6));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 6));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 6));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, -1));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, -128));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, 127));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, 0x1245678));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -1));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -128));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 127));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 0x12345678));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -1));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -128));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 127));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 0x12345678));
+    asm_binary(ADD, reg(RAX), imm(-1));
+    asm_binary(ADD, reg(RAX), imm(-128));
+    asm_binary(ADD, reg(RAX), imm(127));
     asm_binary(ADD, reg(RAX), imm(0x12345678));
-    asm_binary(ADD, reg(RAX), imm(0x12));
+    asm_binary(ADD, reg(RAX), imm(0xFFFFFFFF));
+    asm_binary(ADD, reg(RAX), base(RBP));
+    asm_binary(ADD, reg(RAX), base_index(RBP, RBX));
     __debugbreak(); // enter disassembly on break and set address to buf
 }
