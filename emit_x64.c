@@ -137,6 +137,7 @@ Operand base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, uin
 char *out;
 
 void emit(uint64_t data, int len) {
+    assert(len <= 8);
     *(uint64_t *)out = data;
     out += len;
 }
@@ -150,10 +151,10 @@ enum {
     _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00)
 
 #define BINARY_REG_RM(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: opcode = reg_rm; opcodelen = 1; rx = src.reg; immlen = 0; break;
+    case op: opcode = reg_rm; opcodelen = 1; rx = dest.reg; immlen = 0; break;
 
 #define BINARY_RM_REG(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: opcode = rm_reg; opcodelen = 1; rx = dest.reg; immlen = 0; break;
+    case op: opcode = rm_reg; opcodelen = 1; rx = src.reg; immlen = 0; break;
 
 #define BINARY_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: opcode = rm_imm8; opcodelen = 1; rx = rm_imm8x; immlen = 1; break;
@@ -235,10 +236,9 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
         }
     } else { 
         assert(dest.kind == REG);
-        assert(src.kind == REG || src.kind == IMM);
         prefix = rex(rx, dest.reg);
         prefixlen = 1;
-        arg = direct(dest.reg, rx);
+        arg = direct(rx, dest.reg);
         arglen = 1;
     }
     uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (arg << (8 * (prefixlen + opcodelen)));
@@ -254,13 +254,14 @@ void test_asm(void) {
     out = buf;
     #if 1
     asm_binary(ADD, reg(RAX), reg(R8));
-    asm_binary(ADD, reg(RAX), imm(-1));
-    asm_binary(ADD, reg(RAX), imm(-128));
-    asm_binary(ADD, reg(RAX), imm(127));
-    asm_binary(ADD, reg(RAX), imm(0x12345678));
+    asm_binary(ADD, reg(R8), imm(-1));
+    asm_binary(ADD, reg(R8), imm(-128));
+    asm_binary(ADD, reg(R8), imm(127));
+    asm_binary(ADD, reg(R8), imm(0x12345678));
     asm_binary(ADD, reg(RAX), imm(0xFFFFFFFF));
     #endif
-    asm_binary(ADD, reg(RAX), base(RBX));
+    asm_binary(ADD, reg(RAX), base(R8));
+    asm_binary(ADD, base_index(R8, R9), reg(RAX));
     asm_binary(ADD, base(RBX), reg(RAX));
     asm_binary(ADD, base(RBX), imm(-1));
     asm_binary(ADD, base(RBX), imm(0x12345678));
