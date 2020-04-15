@@ -173,6 +173,12 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
         default:
             assert(0);
         }
+    } else if (src.kind == MEM) {
+        switch (op) {
+            BINARY_OPS(BINARY_REG_RM)
+        default:
+            assert(0);
+        }
     } else if (src.kind == IMM) {
         if (src.imm + 128 < 256) {
             switch (op) {
@@ -187,19 +193,13 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
                 assert(0);
             }
         }
-    } else if (src.kind == MEM) {
-        switch (op) {
-            BINARY_OPS(BINARY_REG_RM)
-        default:
-            assert(0);
-        }
     } else {
         assert(0);
     }
     uint64_t prefix;
     int prefixlen;
-    uint64_t arg;
-    int arglen;
+    uint64_t addr;
+    int addrlen;
     if (src.kind == MEM || dest.kind == MEM) {
         assert(src.kind != MEM || dest.kind != MEM);
         Operand mem = src.kind == MEM ? src : dest;
@@ -208,41 +208,41 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
             prefixlen = 1;
             if (mem.disp || (mem.base & 7) == RBP) {
                 if (mem.disp + 128 < 256) {
-                    arg = indirect_disp8(rx, mem.base, mem.disp);
-                    arglen = 2;
+                    addr = indirect_disp8(rx, mem.base, mem.disp);
+                    addrlen = 2;
                 } else {
-                    arg = indirect_disp32(rx, mem.base, mem.disp);
-                    arglen = 5;
+                    addr = indirect_disp32(rx, mem.base, mem.disp);
+                    addrlen = 5;
                 }
             } else {
-                arg = indirect(rx, mem.base);
-                arglen = 1;
+                addr = indirect(rx, mem.base);
+                addrlen = 1;
             }
         } else {
             prefix = rex_index(rx, mem.base, mem.index);
             prefixlen = 1;
             if (mem.disp || (mem.base & 7) == RBP) {
                 if (mem.disp + 128 < 256) {
-                    arg = indirect_index_disp8(rx, mem.base, mem.index, mem.scale, mem.disp);
-                    arglen = 3;
+                    addr = indirect_index_disp8(rx, mem.base, mem.index, mem.scale, mem.disp);
+                    addrlen = 3;
                 } else {
-                    arg = indirect_index_disp32(rx, mem.base, mem.index, mem.scale, mem.disp);
-                    arglen = 6;
+                    addr = indirect_index_disp32(rx, mem.base, mem.index, mem.scale, mem.disp);
+                    addrlen = 6;
                 }
             } else {
-                arg = indirect_index(rx, mem.base, mem.index, mem.scale);
-                arglen = 2;
+                addr = indirect_index(rx, mem.base, mem.index, mem.scale);
+                addrlen = 2;
             }
         }
     } else { 
         assert(dest.kind == REG);
         prefix = rex(rx, dest.reg);
         prefixlen = 1;
-        arg = direct(rx, dest.reg);
-        arglen = 1;
+        addr = direct(rx, dest.reg);
+        addrlen = 1;
     }
-    uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (arg << (8 * (prefixlen + opcodelen)));
-    int instrlen = prefixlen + opcodelen + arglen;
+    uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (addr << (8 * (prefixlen + opcodelen)));
+    int instrlen = prefixlen + opcodelen + addrlen;
     emit(instr, instrlen);
     if (immlen) {
         emit(src.imm, immlen);
