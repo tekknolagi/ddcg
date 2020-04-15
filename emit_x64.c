@@ -104,7 +104,7 @@ Operand imm(uint64_t i) {
 
 Operand mem(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
     assert(base < 16);
-    assert(index < 16);
+    assert(index < 16 || index == -1);
     assert(scale < 4);
     Operand x = {.kind = MEM, .base = base, .index = index, .scale = scale, .disp = disp};
     return x;
@@ -145,9 +145,9 @@ enum {
     ADD
 };
 
-//    op    reg-rm  rm-reg  rm-imm8       rm-imm32
+//    op    reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
 #define BINARY_OPS(_) \
-    _(ADD,  0x03,   0x01,   0x83, 0x00,   0x81, 0x00)
+    _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00)
 
 #define BINARY_REG_RM(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: data |= reg_rm << 8; break;
