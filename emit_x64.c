@@ -87,6 +87,7 @@ typedef struct {
             uint64_t index;
             uint64_t scale;
             uint64_t disp;
+            int size;
         };
     };
 } Operand;
@@ -106,8 +107,26 @@ Operand mem(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
     assert(base < 16);
     assert(index < 16 || index == -1);
     assert(scale < 4);
-    Operand x = {.kind = MEM, .base = base, .index = index, .scale = scale, .disp = disp};
+    Operand x = {.kind = MEM, .base = base, .index = index, .scale = scale, .disp = disp, .size = 8};
     return x;
+}
+
+Operand sized(Operand x, int size) {
+    assert(x.kind == MEM);
+    x.size = size;
+    return x;
+}
+
+Operand byte_ptr(Operand x) {
+    return sized(x, 1);
+}
+
+Operand word_ptr(Operand x) {
+    return sized(x, 2);
+}
+
+Operand dword_ptr(Operand x) {
+    return sized(x, 4);
 }
 
 Operand base(uint64_t base) {
@@ -134,21 +153,22 @@ Operand base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, uin
     return mem(base, index, scale, disp);
 }
 
-char *out;
+char *here;
 
 void emit(uint64_t data, int len) {
     assert(len <= 8);
-    *(uint64_t *)out = data;
-    out += len;
+    *(uint64_t *)here = data;
+    here += len;
 }
 
 enum {
-    ADD
+    ADD, AND
 };
 
 //    op    reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
 #define BINARY_OPS(_) \
-    _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00)
+    _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
+    _(AND,  0x23,   0x21,   0x83,    0x04,     0x81,     0x04)
 
 #define BINARY_REG_RM(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: opcode = reg_rm; opcodelen = 1; rx = dest.reg; immlen = 0; break;
@@ -163,6 +183,7 @@ enum {
     case op: opcode = rm_imm32; opcodelen = 1; rx = rm_imm32x; immlen = 4; break;
 
 void asm_binary(uint64_t op, Operand dest, Operand src) {
+    // Compute opcode, rx and immediate operand based on source operand.
     uint64_t opcode;
     int opcodelen;
     uint64_t rx;
@@ -197,6 +218,7 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
     } else {
         assert(0);
     }
+    // Compute REX prefix and address mode. The various indirect modes are used for memory operands.
     uint64_t prefix;
     int prefixlen;
     uint64_t addr;
@@ -241,66 +263,95 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
         addr = direct(rx, dest.reg);
         addrlen = 1;
     }
+    // Assemble and emit the instruction word.
     uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (addr << (8 * (prefixlen + opcodelen)));
     int instrlen = prefixlen + opcodelen + addrlen;
     emit(instr, instrlen);
+    // Immediates are separately emitted to avoid overflowing the instruction word.
     if (immlen) {
         emit(src.imm, immlen);
     }
 }
 
+uint32_t *asm_jump(const char *target) {
+    uint32_t offset = (uint32_t)(target - (here + 5));
+    emit(0xE9 | (offset << 8), 5);
+    return (uint32_t *)(here - 4);
+}
+
+uint32_t *asm_jump_if(uint64_t cond, const char *target) {
+    assert(cond < 16);
+    uint32_t offset = (uint32_t)(target - (here + 6));
+    emit(0x800F | (cond << 8) | (offset << 16), 6);
+    return (uint32_t *)(here - 4);
+}
+
+void asm_patch_jump(uint32_t *jump_field, const char *target) {
+    *jump_field = (uint32_t)(target - ((char *)jump_field + 4));
+}
+
 void test_asm(void) {
     static char buf[1024];
-    out = buf;
-    #if 1
-    asm_binary(ADD, reg(RAX), reg(R8));
-    asm_binary(ADD, reg(R8), imm(-1));
-    asm_binary(ADD, reg(R8), imm(-128));
-    asm_binary(ADD, reg(R8), imm(127));
-    asm_binary(ADD, reg(R8), imm(0x12345678));
-    asm_binary(ADD, reg(RAX), imm(0xFFFFFFFF));
-    #endif
-    asm_binary(ADD, reg(RAX), base(R8));
-    asm_binary(ADD, base_index(R8, R9), reg(RAX));
-    asm_binary(ADD, base(RBX), reg(RAX));
-    asm_binary(ADD, base(RBX), imm(-1));
-    asm_binary(ADD, base(RBX), imm(0x12345678));
-    asm_binary(ADD, reg(RAX), base_index(RBX, RCX));
-    asm_binary(ADD, base_index(RBX, RCX), reg(RAX));
-    asm_binary(ADD, base_index(RBX, RCX), imm(-1));
-    asm_binary(ADD, base_index(RBX, RCX), imm(0x12345678));
-    asm_binary(ADD, reg(RAX), base_index_scale(RBX, RCX, X4));
-    asm_binary(ADD, base_index_scale(RBX, RCX, X4), reg(RAX));
-    asm_binary(ADD, base_index_scale(RBX, RCX, X4), imm(-1));
-    asm_binary(ADD, base_index_scale(RBX, RCX, X4), imm(0x12345678));
-    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, 0x12345678), imm(0x12345678));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, -1));
-    asm_binary(ADD, base_disp(RBX, -1), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, -128));
-    asm_binary(ADD, base_disp(RBX, -128), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, 127));
-    asm_binary(ADD, base_disp(RBX, 127), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, 0x1245678));
-    #if 1
-    asm_binary(ADD, base_disp(RBX, 0x1245678), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -1));
-    asm_binary(ADD, base_index_disp(RBX, RCX, -1), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -128));
-    asm_binary(ADD, base_index_disp(RBX, RCX, -128), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 127));
-    asm_binary(ADD, base_index_disp(RBX, RCX, 127), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 0x12345678));
-    asm_binary(ADD, base_index_disp(RBX, RCX, 0x12345678), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -1));
-    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, -1), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -128));
-    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, -128), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 127));
-    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, 127), reg(RAX));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 0x12345678));
-    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, 0x12345678), reg(RAX));
-    asm_binary(ADD, reg(RAX), base(RBP));
-    asm_binary(ADD, reg(RAX), base_index(RBP, RBX));
-    #endif
-    __debugbreak(); // enter disassembly on break and set address to buf
+    here = buf;
+    asm_jump(here);
+    char *addr1 = here;
+    uint32_t *field1 = asm_jump(0);
+     uint32_t *field2 = asm_jump_if(Z, 0);
+    char *addr2 = here;
+    asm_jump_if(NZ, addr1);
+    asm_patch_jump(field1, here);
+    asm_patch_jump(field2, addr2);
+    // asm_jump(127);
+    // asm_jump(0x1234);
+    for (int op = 0; op < 2; op++) {
+        asm_binary(op, reg(RAX), reg(R8));
+        asm_binary(op, reg(R8), imm(-1));
+        asm_binary(op, reg(R8), imm(-128));
+        asm_binary(op, reg(R8), imm(-129));
+        asm_binary(op, reg(R8), imm(127));
+        asm_binary(op, reg(R8), imm(128));
+        asm_binary(op, reg(R8), imm(0x12345678));
+        asm_binary(op, reg(RAX), imm(0xFFFFFFFF));
+        asm_binary(op, reg(RAX), base(R8));
+        asm_binary(op, base_index(R8, R9), reg(RAX));
+        asm_binary(op, base(RBX), reg(RAX));
+        asm_binary(op, base(RBX), imm(-1));
+        asm_binary(op, base(RBX), imm(0x12345678));
+        asm_binary(op, reg(RAX), base_index(RBX, RCX));
+        asm_binary(op, base_index(RBX, RCX), reg(RAX));
+        asm_binary(op, base_index(RBX, RCX), imm(-1));
+        asm_binary(op, base_index(RBX, RCX), imm(0x12345678));
+        asm_binary(op, reg(RAX), base_index_scale(RBX, RCX, X4));
+        asm_binary(op, base_index_scale(RBX, RCX, X4), reg(RAX));
+        asm_binary(op, base_index_scale(RBX, RCX, X4), imm(-1));
+        asm_binary(op, base_index_scale(RBX, RCX, X4), imm(0x12345678));
+        asm_binary(op, base_index_scale_disp(RBX, RCX, X4, 0x12345678), imm(0x12345678));
+        asm_binary(op, reg(RAX), base_disp(RBX, -1));
+        asm_binary(op, base_disp(RBX, -1), reg(RAX));
+        asm_binary(op, reg(RAX), base_disp(RBX, -128));
+        asm_binary(op, base_disp(RBX, -128), reg(RAX));
+        asm_binary(op, reg(RAX), base_disp(RBX, 127));
+        asm_binary(op, base_disp(RBX, 127), reg(RAX));
+        asm_binary(op, reg(RAX), base_disp(RBX, 0x1245678));
+        asm_binary(op, base_disp(RBX, 0x1245678), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_disp(RBX, RCX, -1));
+        asm_binary(op, base_index_disp(RBX, RCX, -1), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_disp(RBX, RCX, -128));
+        asm_binary(op, base_index_disp(RBX, RCX, -128), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_disp(RBX, RCX, 127));
+        asm_binary(op, base_index_disp(RBX, RCX, 127), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_disp(RBX, RCX, 0x12345678));
+        asm_binary(op, base_index_disp(RBX, RCX, 0x12345678), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -1));
+        asm_binary(op, base_index_scale_disp(RBX, RCX, X4, -1), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -128));
+        asm_binary(op, base_index_scale_disp(RBX, RCX, X4, -128), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 127));
+        asm_binary(op, base_index_scale_disp(RBX, RCX, X4, 127), reg(RAX));
+        asm_binary(op, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 0x12345678));
+        asm_binary(op, base_index_scale_disp(RBX, RCX, X4, 0x12345678), reg(RAX));
+        asm_binary(op, reg(RAX), base(RBP));
+        asm_binary(op, reg(RAX), base_index(RBP, RBX));
+    }
+    __debugbreak(); // Enter disassembly on break and set address to buf
 }
