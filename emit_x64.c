@@ -172,8 +172,7 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
             len = 3;
         } else if (src.kind == IMM) {
             data = rex(0, dest.reg) | (src.imm << 24);
-            int64_t i = src.imm;
-            if (-128 <= i && i < 128) {
+            if (src.imm + 128 < 256) {
                 switch (op) {
                     BINARY_OPS(BINARY_REG_IMM8)
                 default:
@@ -192,8 +191,7 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
             if (src.index == -1) {
                 data = rex(dest.reg, src.base);
                 if (src.disp || (src.base & 7) == RBP) {
-                    int64_t i = src.disp;
-                    if (-128 <= i && i < 128) {
+                    if (src.disp + 128 < 256) {
                         data |= indirect_disp8(dest.reg, src.base, src.disp) << 16;
                         len = 4;
                     } else {
@@ -207,8 +205,7 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
             } else {
                 data = rex_index(dest.reg, src.base, src.index);
                 if (src.disp || (src.base & 7) == RBP) {
-                    int64_t i = src.disp;
-                    if (-128 <= i && i < 128) {
+                    if (src.disp + 128 < 256) {
                         data |= indirect_index_disp8(dest.reg, src.base, src.index, src.scale, src.disp) << 16;
                         len = 5;
                     } else {
