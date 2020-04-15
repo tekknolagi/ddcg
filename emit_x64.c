@@ -150,113 +150,156 @@ enum {
     _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00)
 
 #define BINARY_REG_RM(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: data |= reg_rm << 8; break;
+    case op: opcode = reg_rm; opcodelen = 1; rx = src.reg; immlen = 0; break;
 
-#define BINARY_REG_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: data |= (rm_imm8 << 8) | (direct(rm_imm8x, dest.reg) << 16); break;
+#define BINARY_RM_REG(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    case op: opcode = rm_reg; opcodelen = 1; rx = dest.reg; immlen = 0; break;
 
-#define BINARY_REG_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: data |= (rm_imm32 << 8) | (direct(rm_imm32x, dest.reg) << 16); break;
+#define BINARY_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    case op: opcode = rm_imm8; opcodelen = 1; rx = rm_imm8x; immlen = 1; break;
+
+#define BINARY_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    case op: opcode = rm_imm32; opcodelen = 1; rx = rm_imm32x; immlen = 4; break;
 
 void asm_binary(uint64_t op, Operand dest, Operand src) {
-    uint64_t data;
-    int len;
-    if (dest.kind == REG) {
-        if (src.kind == REG) {
-            data = rex(dest.reg, src.reg) | (direct(dest.reg, src.reg) << 16);
+    uint64_t opcode;
+    int opcodelen;
+    uint64_t rx;
+    int immlen;
+    if (src.kind == REG) {
+        switch (op) {
+            BINARY_OPS(BINARY_RM_REG)
+        default:
+            assert(0);
+        }
+    } else if (src.kind == IMM) {
+        if (src.imm + 128 < 256) {
             switch (op) {
-                BINARY_OPS(BINARY_REG_RM)
-            default:
-                assert(0);
-            }
-            len = 3;
-        } else if (src.kind == IMM) {
-            data = rex(0, dest.reg) | (src.imm << 24);
-            if (src.imm + 128 < 256) {
-                switch (op) {
-                    BINARY_OPS(BINARY_REG_IMM8)
-                default:
-                    assert(0);
-                }
-                len = 4;
-            } else {
-                switch (op) {
-                    BINARY_OPS(BINARY_REG_IMM32)
-                default:
-                    assert(0);
-                }
-                len = 7;
-            }
-        } else if (src.kind == MEM) {
-            if (src.index == -1) {
-                data = rex(dest.reg, src.base);
-                if (src.disp || (src.base & 7) == RBP) {
-                    if (src.disp + 128 < 256) {
-                        data |= indirect_disp8(dest.reg, src.base, src.disp) << 16;
-                        len = 4;
-                    } else {
-                        data |= indirect_disp32(dest.reg, src.base, src.disp) << 16;
-                        len = 7;
-                    }
-                } else {
-                    data |= indirect(dest.reg, src.base) << 16;
-                    len = 3;
-                }
-            } else {
-                data = rex_index(dest.reg, src.base, src.index);
-                if (src.disp || (src.base & 7) == RBP) {
-                    if (src.disp + 128 < 256) {
-                        data |= indirect_index_disp8(dest.reg, src.base, src.index, src.scale, src.disp) << 16;
-                        len = 5;
-                    } else {
-                        data |= indirect_index_disp32(dest.reg, src.base, src.index, src.scale, src.disp) << 16;
-                        len = 8;
-                    }
-                } else {
-                    data |= indirect_index(dest.reg, src.base, src.index, src.scale) << 16;
-                    len = 4;
-                }
-            }
-            switch (op) {
-                BINARY_OPS(BINARY_REG_RM)
+                BINARY_OPS(BINARY_IMM8)
             default:
                 assert(0);
             }
         } else {
+            switch (op) {
+                BINARY_OPS(BINARY_IMM32)
+            default:
+                assert(0);
+            }
+        }
+    } else if (src.kind == MEM) {
+        switch (op) {
+            BINARY_OPS(BINARY_REG_RM)
+        default:
             assert(0);
         }
     } else {
         assert(0);
     }
-    emit(data, len);
+    uint64_t prefix;
+    int prefixlen;
+    uint64_t arg;
+    int arglen;
+    if (src.kind == MEM || dest.kind == MEM) {
+        assert(src.kind != MEM || dest.kind != MEM);
+        Operand mem = src.kind == MEM ? src : dest;
+        if (mem.index == -1) {
+            prefix = rex(rx, mem.base);
+            prefixlen = 1;
+            if (mem.disp || (mem.base & 7) == RBP) {
+                if (mem.disp + 128 < 256) {
+                    arg = indirect_disp8(rx, mem.base, mem.disp);
+                    arglen = 2;
+                } else {
+                    arg = indirect_disp32(rx, mem.base, mem.disp);
+                    arglen = 5;
+                }
+            } else {
+                arg = indirect(rx, mem.base);
+                arglen = 1;
+            }
+        } else {
+            prefix = rex_index(rx, mem.base, mem.index);
+            prefixlen = 1;
+            if (mem.disp || (mem.base & 7) == RBP) {
+                if (mem.disp + 128 < 256) {
+                    arg = indirect_index_disp8(rx, mem.base, mem.index, mem.scale, mem.disp);
+                    arglen = 3;
+                } else {
+                    arg = indirect_index_disp32(rx, mem.base, mem.index, mem.scale, mem.disp);
+                    arglen = 6;
+                }
+            } else {
+                arg = indirect_index(rx, mem.base, mem.index, mem.scale);
+                arglen = 2;
+            }
+        }
+    } else { 
+        assert(dest.kind == REG);
+        assert(src.kind == REG || src.kind == IMM);
+        prefix = rex(rx, dest.reg);
+        prefixlen = 1;
+        arg = direct(dest.reg, rx);
+        arglen = 1;
+    }
+    uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (arg << (8 * (prefixlen + opcodelen)));
+    int instrlen = prefixlen + opcodelen + arglen;
+    emit(instr, instrlen);
+    if (immlen) {
+        emit(src.imm, immlen);
+    }
 }
-
 
 void test_asm(void) {
     static char buf[1024];
     out = buf;
+    #if 1
     asm_binary(ADD, reg(RAX), reg(R8));
-    asm_binary(ADD, reg(RAX), base(RBX));
-    asm_binary(ADD, reg(RAX), base_index(RBX, RCX));
-    asm_binary(ADD, reg(RAX), base_index_scale(RBX, RCX, X4));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, -1));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, -128));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, 127));
-    asm_binary(ADD, reg(RAX), base_disp(RBX, 0x1245678));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -1));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -128));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 127));
-    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 0x12345678));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -1));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -128));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 127));
-    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 0x12345678));
     asm_binary(ADD, reg(RAX), imm(-1));
     asm_binary(ADD, reg(RAX), imm(-128));
     asm_binary(ADD, reg(RAX), imm(127));
     asm_binary(ADD, reg(RAX), imm(0x12345678));
     asm_binary(ADD, reg(RAX), imm(0xFFFFFFFF));
+    #endif
+    asm_binary(ADD, reg(RAX), base(RBX));
+    asm_binary(ADD, base(RBX), reg(RAX));
+    asm_binary(ADD, base(RBX), imm(-1));
+    asm_binary(ADD, base(RBX), imm(0x12345678));
+    asm_binary(ADD, reg(RAX), base_index(RBX, RCX));
+    asm_binary(ADD, base_index(RBX, RCX), reg(RAX));
+    asm_binary(ADD, base_index(RBX, RCX), imm(-1));
+    asm_binary(ADD, base_index(RBX, RCX), imm(0x12345678));
+    asm_binary(ADD, reg(RAX), base_index_scale(RBX, RCX, X4));
+    asm_binary(ADD, base_index_scale(RBX, RCX, X4), reg(RAX));
+    asm_binary(ADD, base_index_scale(RBX, RCX, X4), imm(-1));
+    asm_binary(ADD, base_index_scale(RBX, RCX, X4), imm(0x12345678));
+    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, 0x12345678), imm(0x12345678));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, -1));
+    asm_binary(ADD, base_disp(RBX, -1), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, -128));
+    asm_binary(ADD, base_disp(RBX, -128), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, 127));
+    asm_binary(ADD, base_disp(RBX, 127), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_disp(RBX, 0x1245678));
+    #if 1
+    asm_binary(ADD, base_disp(RBX, 0x1245678), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -1));
+    asm_binary(ADD, base_index_disp(RBX, RCX, -1), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, -128));
+    asm_binary(ADD, base_index_disp(RBX, RCX, -128), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 127));
+    asm_binary(ADD, base_index_disp(RBX, RCX, 127), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_disp(RBX, RCX, 0x12345678));
+    asm_binary(ADD, base_index_disp(RBX, RCX, 0x12345678), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -1));
+    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, -1), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, -128));
+    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, -128), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 127));
+    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, 127), reg(RAX));
+    asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 0x12345678));
+    asm_binary(ADD, base_index_scale_disp(RBX, RCX, X4, 0x12345678), reg(RAX));
     asm_binary(ADD, reg(RAX), base(RBP));
     asm_binary(ADD, reg(RAX), base_index(RBP, RBX));
+    #endif
     __debugbreak(); // enter disassembly on break and set address to buf
 }
