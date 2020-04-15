@@ -155,7 +155,7 @@ enum {
 #define BINARY_REG_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: data |= (rm_imm32 << 8) | (direct(rm_imm32x, dest.reg) << 16); break;
 
-INLINE void asm_binary(uint64_t op, Operand dest, Operand src) {
+void asm_binary(uint64_t op, Operand dest, Operand src) {
     uint64_t data;
     int len;
     if (dest.kind == REG) {
@@ -209,10 +209,10 @@ INLINE void asm_binary(uint64_t op, Operand dest, Operand src) {
     emit(data, len);
 }
 
-char codebuf[1024];
 
 void test_asm(void) {
-    out = codebuf;
+    static char buf[1024];
+    out = buf;
     asm_binary(ADD, reg(RAX), reg(R8));
     asm_binary(ADD, reg(RAX), base(RBX));
     asm_binary(ADD, reg(RAX), base_index(RBX, RCX));
@@ -222,5 +222,5 @@ void test_asm(void) {
     asm_binary(ADD, reg(RAX), base_index_scale_disp(RBX, RCX, X4, 6));
     asm_binary(ADD, reg(RAX), imm(0x12345678));
     asm_binary(ADD, reg(RAX), imm(0x12));
-    __debugbreak(); // enter disassembly on break and set address to codebuf
+    __debugbreak(); // enter disassembly on break and set address to buf
 }
