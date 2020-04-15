@@ -80,19 +80,19 @@ typedef enum {
 typedef struct {
     OperandKind kind;
     union {
-        uint64_t reg;
+        uint8_t reg;
         uint64_t imm;
         struct {
-            uint64_t base;
-            uint64_t index;
-            uint64_t scale;
-            uint64_t disp;
-            int size;
+            uint8_t size;
+            uint8_t base;
+            uint8_t index;
+            uint8_t scale;
+            uint32_t disp;
         };
     };
 } Operand;
 
-Operand reg(uint64_t r) {
+Operand reg(uint8_t r) {
     assert(r < 16);
     Operand x = {.kind = REG, .reg = r};
     return x;
@@ -103,16 +103,17 @@ Operand imm(uint64_t i) {
     return x;
 }
 
-Operand mem(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
+Operand mem(uint8_t base, uint8_t index, uint8_t scale, uint8_t disp) {
     assert(base < 16);
-    assert(index < 16 || index == -1);
+    assert(index <= 16);
     assert(scale < 4);
-    Operand x = {.kind = MEM, .base = base, .index = index, .scale = scale, .disp = disp, .size = 8};
+    Operand x = {.kind = MEM, .size = 8, .base = base, .index = index, .scale = scale, .disp = disp};
     return x;
 }
 
 Operand sized(Operand x, int size) {
     assert(x.kind == MEM);
+    assert(size == 1 || size == 2 || size == 4 || size == 8);
     x.size = size;
     return x;
 }
@@ -129,27 +130,27 @@ Operand dword_ptr(Operand x) {
     return sized(x, 4);
 }
 
-Operand base(uint64_t base) {
-    return mem(base, -1, X1, 0);
+Operand base(uint8_t base) {
+    return mem(base, 16, X1, 0);
 }
 
-Operand base_index(uint64_t base, uint64_t index) {
+Operand base_index(uint8_t base, uint8_t index) {
     return mem(base, index, X1, 0);
 }
 
-Operand base_index_scale(uint64_t base, uint64_t index, uint64_t scale) {
+Operand base_index_scale(uint8_t base, uint8_t index, uint8_t scale) {
     return mem(base, index, scale, 0);
 }
 
-Operand base_disp(uint64_t base, uint64_t disp) {
-    return mem(base, -1, X1, disp);
+Operand base_disp(uint8_t base, uint32_t disp) {
+    return mem(base, 16, X1, disp);
 }
 
-Operand base_index_disp(uint64_t base, uint64_t index, uint64_t disp) {
+Operand base_index_disp(uint8_t base, uint8_t index, uint32_t disp) {
     return mem(base, index, X1, disp);
 }
 
-Operand base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
+Operand base_index_scale_disp(uint8_t base, uint8_t index, uint8_t scale, uint32_t disp) {
     return mem(base, index, scale, disp);
 }
 
@@ -225,7 +226,7 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
     int addrlen;
     if (src.kind == MEM || dest.kind == MEM) {
         Operand mem = src.kind == MEM ? src : dest;
-        if (mem.index == -1) {
+        if (mem.index == 16) {
             prefix = rex(rx, mem.base);
             prefixlen = 1;
             if (mem.disp || (mem.base & 7) == RBP) {
