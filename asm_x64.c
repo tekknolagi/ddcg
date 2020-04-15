@@ -172,23 +172,64 @@ enum {
     _(AND,  0x23,   0x21,   0x83,    0x04,     0x81,     0x04)
 
 #define BINARY_REG_RM(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: opcode = reg_rm; opcodelen = 1; rx = dest.reg; immlen = 0; break;
+    case op: opcode = reg_rm; opcodelen = 1; immlen = 0; rx = dest.reg; rm = src; break;
 
 #define BINARY_RM_REG(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: opcode = rm_reg; opcodelen = 1; rx = src.reg; immlen = 0; break;
+    case op: opcode = rm_reg; opcodelen = 1; immlen = 0; rx = src.reg; rm = dest; break;
 
 #define BINARY_RM_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: opcode = rm_imm8; opcodelen = 1; rx = rm_imm8x; immlen = 1; break;
+    case op: opcode = rm_imm8; opcodelen = 1; immlen = 1; rx = rm_imm8x; rm = dest; break;
 
 #define BINARY_RM_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    case op: opcode = rm_imm32; opcodelen = 1; rx = rm_imm32x; immlen = 4; break;
+    case op: opcode = rm_imm32; opcodelen = 1; immlen = 4; rx = rm_imm32x; rm = dest; break;
+
+INLINE void asm_rx_rm(uint64_t rx, Operand rm, uint64_t *prefix, int *prefixlen, uint64_t *addr, int *addrlen) {
+    if (rm.kind == REG) {
+        assert(rm.kind == REG);
+        *prefix = rex(rx, rm.reg);
+        *prefixlen = 1;
+        *addr = direct(rx, rm.reg);
+        *addrlen = 1;
+    } else {
+        assert(rm.kind == MEM);
+        if (rm.index == 16) {
+            *prefix = rex(rx, rm.base);
+            *prefixlen = 1;
+            if (rm.disp || (rm.base & 7) == RBP) {
+                if (rm.disp + 128 < 256) {
+                    *addr = indirect_disp8(rx, rm.base, rm.disp);
+                    *addrlen = 2;
+                } else {
+                    *addr = indirect_disp32(rx, rm.base, rm.disp);
+                    *addrlen = 5;
+                }
+            } else {
+                *addr = indirect(rx, rm.base);
+                *addrlen = 1;
+            }
+        } else {
+            *prefix = rex_index(rx, rm.base, rm.index);
+            *prefixlen = 1;
+            if (rm.disp || (rm.base & 7) == RBP) {
+                if (rm.disp + 128 < 256) {
+                    *addr = indirect_index_disp8(rx, rm.base, rm.index, rm.scale, rm.disp);
+                    *addrlen = 3;
+                } else {
+                    *addr = indirect_index_disp32(rx, rm.base, rm.index, rm.scale, rm.disp);
+                    *addrlen = 6;
+                }
+            } else {
+                *addr = indirect_index(rx, rm.base, rm.index, rm.scale);
+                *addrlen = 2;
+            }
+        }
+    }
+}
 
 void asm_binary(uint64_t op, Operand dest, Operand src) {
-    // Compute opcode, rx and immediate operand based on source operand.
-    uint64_t opcode;
-    int opcodelen;
-    uint64_t rx;
-    int immlen;
+    uint64_t opcode, rx;
+    int opcodelen, immlen;
+    Operand rm;
     if (src.kind == REG) {
         switch (op) {
             BINARY_OPS(BINARY_RM_REG)
@@ -219,56 +260,12 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
     } else {
         assert(0);
     }
-    // Compute REX prefix and address mode. The various indirect modes are used for memory operands.
-    uint64_t prefix;
-    int prefixlen;
-    uint64_t addr;
-    int addrlen;
-    if (src.kind == MEM || dest.kind == MEM) {
-        Operand mem = src.kind == MEM ? src : dest;
-        if (mem.index == 16) {
-            prefix = rex(rx, mem.base);
-            prefixlen = 1;
-            if (mem.disp || (mem.base & 7) == RBP) {
-                if (mem.disp + 128 < 256) {
-                    addr = indirect_disp8(rx, mem.base, mem.disp);
-                    addrlen = 2;
-                } else {
-                    addr = indirect_disp32(rx, mem.base, mem.disp);
-                    addrlen = 5;
-                }
-            } else {
-                addr = indirect(rx, mem.base);
-                addrlen = 1;
-            }
-        } else {
-            prefix = rex_index(rx, mem.base, mem.index);
-            prefixlen = 1;
-            if (mem.disp || (mem.base & 7) == RBP) {
-                if (mem.disp + 128 < 256) {
-                    addr = indirect_index_disp8(rx, mem.base, mem.index, mem.scale, mem.disp);
-                    addrlen = 3;
-                } else {
-                    addr = indirect_index_disp32(rx, mem.base, mem.index, mem.scale, mem.disp);
-                    addrlen = 6;
-                }
-            } else {
-                addr = indirect_index(rx, mem.base, mem.index, mem.scale);
-                addrlen = 2;
-            }
-        }
-    } else { 
-        assert(dest.kind == REG);
-        prefix = rex(rx, dest.reg);
-        prefixlen = 1;
-        addr = direct(rx, dest.reg);
-        addrlen = 1;
-    }
-    // Assemble and emit the instruction word.
+    uint64_t prefix, addr;
+    int prefixlen, addrlen;
+    asm_rx_rm(rx, rm, &prefix, &prefixlen, &addr, &addrlen);
     uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (addr << (8 * (prefixlen + opcodelen)));
     int instrlen = prefixlen + opcodelen + addrlen;
     emit(instr, instrlen);
-    // Immediates are separately emitted to avoid overflowing the instruction word.
     if (immlen) {
         emit(src.imm, immlen);
     }
@@ -297,7 +294,7 @@ void test_asm(void) {
     asm_jump(here);
     char *addr1 = here;
     uint32_t *field1 = asm_jump(0);
-     uint32_t *field2 = asm_jump_if(Z, 0);
+    uint32_t *field2 = asm_jump_if(Z, 0);
     char *addr2 = here;
     asm_jump_if(NZ, addr1);
     asm_patch_jump(field1, here);
