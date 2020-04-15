@@ -21,56 +21,56 @@ uint64_t mod_rx_rm(uint64_t mod, uint64_t rx, uint64_t rm) {
     assert(mod < 4);
     assert(rx < 16);
     assert(rm < 16);
-    return (rm & 7) | ((rx & 7) << 3) | (mod << 6);
+    return (rm & 7) | ((rx & 7) << 3) | (mod << 6); // 1
 }
 
 uint64_t rex_index(uint64_t rx, uint64_t base, uint64_t index) {
-    return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2);
+    return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); // 1
 }
 
 uint64_t rex(uint64_t rx, uint64_t base) {
-    return rex_index(rx, base, 0);
+    return rex_index(rx, base, 0); // 1
 }
 
 uint64_t direct(uint64_t rx, uint64_t reg) {
-    return mod_rx_rm(DIRECT, rx, reg);
+    return mod_rx_rm(DIRECT, rx, reg); // 1
 }
 
 uint64_t indirect(uint64_t rx, uint64_t base) {
     assert((base & 7) != RSP);
     assert((base & 7) != RBP);
-    return mod_rx_rm(INDIRECT, rx, base);
+    return mod_rx_rm(INDIRECT, rx, base); // 1
 }
 
 uint64_t indirect_rip_disp32(uint64_t rx, uint64_t disp) {
-    return mod_rx_rm(INDIRECT, rx, RBP) | (disp << 8);
+    return mod_rx_rm(INDIRECT, rx, RBP) | (disp << 8); // 5
 }
 
 uint64_t indirect_disp8(uint64_t rx, uint64_t base, uint64_t disp) {
     assert((base & 7) != RSP);
-    return mod_rx_rm(INDIRECT_DISP8, rx, base) | (disp << 8);
+    return mod_rx_rm(INDIRECT_DISP8, rx, base) | (disp << 8); // 2
 }
 
 uint64_t indirect_disp32(uint64_t rx, uint64_t base, uint64_t disp) {
     assert((base & 7) != RSP);
-    return mod_rx_rm(INDIRECT_DISP32, rx, base) | (disp << 8);
+    return mod_rx_rm(INDIRECT_DISP32, rx, base) | (disp << 8); // 5
 }
 
 uint64_t indirect_index(uint64_t rx, uint64_t base, uint64_t index, uint64_t scale) {
     assert((base & 7) != RBP);
-    return mod_rx_rm(INDIRECT, rx, RSP) | (mod_rx_rm(scale, index, base) << 8);
+    return mod_rx_rm(INDIRECT, rx, RSP) | (mod_rx_rm(scale, index, base) << 8); // 2
 }
 
 uint64_t indirect_index_disp8(uint64_t rx, uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
-    return mod_rx_rm(INDIRECT_DISP8, rx, RSP) | (mod_rx_rm(scale, index, base) << 8) | (disp << 16);
+    return mod_rx_rm(INDIRECT_DISP8, rx, RSP) | (mod_rx_rm(scale, index, base) << 8) | (disp << 16); // 3
 }
 
 uint64_t indirect_index_disp32(uint64_t rx, uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
-    return mod_rx_rm(INDIRECT_DISP32, rx, RSP) | (mod_rx_rm(scale, index, base) << 8) | (disp << 16);
+    return mod_rx_rm(INDIRECT_DISP32, rx, RSP) | (mod_rx_rm(scale, index, base) << 8) | (disp << 16); // 6
 }
 
 uint64_t disp32(uint64_t rx, uint64_t disp) {
-    return mod_rx_rm(INDIRECT, rx, RSP) | (mod_rx_rm(X1, RSP, RBP) << 8) | (disp << 16);
+    return mod_rx_rm(INDIRECT, rx, RSP) | (mod_rx_rm(X1, RSP, RBP) << 8) | (disp << 16); // 6
 }
 
 typedef enum {
@@ -92,26 +92,21 @@ typedef struct {
 } Operand;
 
 Operand reg(uint64_t r) {
-    Operand x;
-    x.kind = REG;
-    x.reg = r;
+    assert(r < 16);
+    Operand x = {.kind = REG, .reg = r};
     return x;
 }
 
 Operand imm(uint64_t i) {
-    Operand x;
-    x.kind = IMM;
-    x.imm = i;
+    Operand x = {.kind = IMM, .imm = i};
     return x;
 }
 
 Operand mem(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
-    Operand x;
-    x.kind = MEM;
-    x.base = base;
-    x.index = index;
-    x.scale = scale;
-    x.disp = disp;
+    assert(base < 16);
+    assert(index < 16);
+    assert(scale < 4);
+    Operand x = {.kind = MEM, .base = base, .index = index, .scale = scale, .disp = disp};
     return x;
 }
 
