@@ -156,10 +156,10 @@ enum {
 #define BINARY_RM_REG(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: opcode = rm_reg; opcodelen = 1; rx = src.reg; immlen = 0; break;
 
-#define BINARY_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+#define BINARY_RM_IMM8(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: opcode = rm_imm8; opcodelen = 1; rx = rm_imm8x; immlen = 1; break;
 
-#define BINARY_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+#define BINARY_RM_IMM32(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     case op: opcode = rm_imm32; opcodelen = 1; rx = rm_imm32x; immlen = 4; break;
 
 void asm_binary(uint64_t op, Operand dest, Operand src) {
@@ -174,6 +174,7 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
             assert(0);
         }
     } else if (src.kind == MEM) {
+        assert(dest.kind == REG);
         switch (op) {
             BINARY_OPS(BINARY_REG_RM)
         default:
@@ -182,13 +183,13 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
     } else if (src.kind == IMM) {
         if (src.imm + 128 < 256) {
             switch (op) {
-                BINARY_OPS(BINARY_IMM8)
+                BINARY_OPS(BINARY_RM_IMM8)
             default:
                 assert(0);
             }
         } else {
             switch (op) {
-                BINARY_OPS(BINARY_IMM32)
+                BINARY_OPS(BINARY_RM_IMM32)
             default:
                 assert(0);
             }
@@ -201,7 +202,6 @@ void asm_binary(uint64_t op, Operand dest, Operand src) {
     uint64_t addr;
     int addrlen;
     if (src.kind == MEM || dest.kind == MEM) {
-        assert(src.kind != MEM || dest.kind != MEM);
         Operand mem = src.kind == MEM ? src : dest;
         if (mem.index == -1) {
             prefix = rex(rx, mem.base);
