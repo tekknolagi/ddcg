@@ -175,7 +175,7 @@ INLINE void asm_binary(uint64_t op, Operand dest, Operand src) {
         } else if (src.kind == IMM) {
             data = rex(0, dest.reg) | (src.imm << 24);
             switch (op) {
-                BINARY_OPS(BINARY_REG_RM)
+                BINARY_OPS(BINARY_REG_IMM32)
             default:
                 assert(0);
             }
