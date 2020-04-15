@@ -1,5 +1,6 @@
 enum {
-    RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15
+    RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI,
+    R8,  R9,  R10, R11, R12, R13, R14, R15
 };
 
 enum {
@@ -172,13 +173,12 @@ INLINE void asm_binary(uint64_t op, Operand dest, Operand src) {
             }
             len = 3;
         } else if (src.kind == IMM) {
-            data = rex(0, dest.reg);
+            data = rex(0, dest.reg) | (src.imm << 24);
             switch (op) {
                 BINARY_OPS(BINARY_REG_RM)
             default:
                 assert(0);
             }
-            data |= src.imm << 24;
             len = 7;
         } else if (src.kind == MEM) {
             if (src.index == -1) {
