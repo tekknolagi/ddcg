@@ -156,14 +156,14 @@ INLINE void asm_reg_mem(uint64_t op, uint8_t dest_reg, uint8_t src_base, uint8_t
     uint64_t opcode;
     int opcodelen;
     BINARY_OPS(REG_RM);
-    asm_rx_mem(opcode, 1, dest_reg, src_base, src_index, src_scale, src_disp);
+    asm_rx_mem(opcode, opcodelen, dest_reg, src_base, src_index, src_scale, src_disp);
 }
 
 INLINE void asm_mem_reg(uint64_t op, uint8_t dest_base, uint8_t dest_index, uint8_t dest_scale, uint32_t dest_disp, uint32_t src_reg) {
     uint64_t opcode;
     int opcodelen;
     BINARY_OPS(RM_REG);
-    asm_rx_mem(opcode, 1, src_reg, dest_base, dest_index, dest_scale, dest_disp);
+    asm_rx_mem(opcode, opcodelen, src_reg, dest_base, dest_index, dest_scale, dest_disp);
 }
 
 INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint32_t src_imm) {
