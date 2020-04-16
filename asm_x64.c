@@ -92,11 +92,11 @@ INLINE void emit(uint64_t data, int len) {
     here += len;
 }
 
-INLINE void emit_instr(uint64_t rx, uint64_t base, uint64_t index, uint64_t opcode, int opcodelen, uint64_t ext, int extlen) {
+INLINE void emit_instr(uint64_t rx, uint64_t base, uint64_t index, uint64_t op, int oplen, uint64_t ext, int extlen) {
     uint64_t prefix = rexw(rx, base, index);
     int prefixlen = 1;
-    uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (ext << (8 * (prefixlen + opcodelen)));
-    int instrlen = prefixlen + opcodelen + extlen;
+    uint64_t instr = prefix | (op << (8 * prefixlen)) | (ext << (8 * (prefixlen + oplen)));
+    int instrlen = prefixlen + oplen + extlen;
     emit(instr, instrlen);
 }
 
@@ -105,25 +105,16 @@ INLINE void emit_instr(uint64_t rx, uint64_t base, uint64_t index, uint64_t opco
     _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
     _(AND,  0x23,   0x21,   0x83,    0x04,     0x81,     0x04)
 
-#define REG_RM(op1, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    if (op == op1) { opcode = reg_rm; opcodelen = 1; }
-
-#define RM_REG(op1, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    if (op == op1) { opcode = rm_reg; opcodelen = 1; }
-
-#define RM_IMM8(op1, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    if (op == op1) { opcode = rm_imm8; opcodelen = 1; rx = rm_imm8x; }
-
-#define RM_IMM32(op1, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    if (op == op1) { opcode = rm_imm32; opcodelen = 1; rx = rm_imm32x; }
-
-#define ENUM(x, ...) x,
+#define BINARY_FIELDS(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    op##_reg_rm = reg_rm, op##_rm_reg = rm_reg, \
+    op##_rm_imm8 = rm_imm8, op##_rm_imm8x = rm_imm8x, \
+    op##_rm_imm32 = rm_imm32, op##_rm_imm32x = rm_imm32x,
 
 enum {
-    BINARY_OPS(ENUM)
+    BINARY_OPS(BINARY_FIELDS)
 };
 
-INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
+INLINE void asm_rx_mem(uint64_t op, int oplen, uint64_t rx, uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
     uint64_t addr;
     int addrlen;
     if (index == -1) {
@@ -154,56 +145,51 @@ INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint64_t bas
             addrlen = 2;
         }
     }
-    emit_instr(rx, base, index, opcode, opcodelen, addr, addrlen);
+    emit_instr(rx, base, index, op, oplen, addr, addrlen);
 }
 
-INLINE void asm_reg_reg(uint64_t op, uint64_t dest_reg, uint64_t src_reg) {
-    uint64_t opcode;
-    int opcodelen;
-    BINARY_OPS(REG_RM);
-    emit_instr(dest_reg, src_reg, 0, opcode, opcodelen, direct(dest_reg, src_reg), 1);
+INLINE void asm_reg_reg_func(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(dest_reg, src_reg, 0, op, oplen, direct(dest_reg, src_reg), 1);
 }
 
-INLINE void asm_reg_mem(uint64_t op, uint64_t dest_reg, uint64_t src_base, uint64_t src_index, uint64_t src_scale, uint64_t src_disp) {
-    uint64_t opcode;
-    int opcodelen;
-    BINARY_OPS(REG_RM);
-    asm_rx_mem(opcode, opcodelen, dest_reg, src_base, src_index, src_scale, src_disp);
+INLINE void asm_reg_mem_func(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_base, uint64_t src_index, uint64_t src_scale, uint64_t src_disp) {
+    asm_rx_mem(op, oplen, dest_reg, src_base, src_index, src_scale, src_disp);
 }
 
-INLINE void asm_mem_reg(uint64_t op, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_reg) {
-    uint64_t opcode;
-    int opcodelen;
-    BINARY_OPS(RM_REG);
-    asm_rx_mem(opcode, opcodelen, src_reg, dest_base, dest_index, dest_scale, dest_disp);
+INLINE void asm_mem_reg_func(uint64_t op, int oplen, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_reg) {
+    asm_rx_mem(op, oplen, src_reg, dest_base, dest_index, dest_scale, dest_disp);
 }
 
-INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint64_t src_imm) {
-    uint64_t opcode, rx;
-    int opcodelen, immlen;
+INLINE void asm_reg_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
+    uint64_t op, rx;
+    int immlen;
     if (isimm8(src_imm)) {
-        BINARY_OPS(RM_IMM8);
+        op = op8;
+        rx = rx8;
         immlen = 1;
     } else {
-        BINARY_OPS(RM_IMM32);
+        op = op32;
+        rx = rx32;
         immlen = 4;
     }
-    emit_instr(rx, dest_reg, 0, opcode, opcodelen, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
+    emit_instr(rx, dest_reg, 0, op, oplen, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
 }
 
-INLINE void asm_mem_imm(uint64_t op, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_imm) {
-    uint64_t opcode, rx;
-    int opcodelen;
+INLINE void asm_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_imm) {
     if (isimm8(src_imm)) {
-        BINARY_OPS(RM_IMM8);
-        asm_rx_mem(opcode, opcodelen, rx, dest_base, dest_index, dest_scale, dest_disp);
+        asm_rx_mem(op8, oplen, rx8, dest_base, dest_index, dest_scale, dest_disp);
         emit(src_imm, 1);
     } else {
-        BINARY_OPS(RM_IMM32);
-        asm_rx_mem(opcode, opcodelen, rx, dest_base, dest_index, dest_scale, dest_disp);
+        asm_rx_mem(op32, oplen, rx32, dest_base, dest_index, dest_scale, dest_disp);
         emit(src_imm, 4);
     }
 }
+
+#define asm_reg_reg(op, ...) asm_reg_reg_func(op##_reg_rm, 1, __VA_ARGS__)
+#define asm_reg_mem(op, ...) asm_reg_mem_func(op##_reg_rm, 1, __VA_ARGS__)
+#define asm_reg_imm(op, ...) asm_reg_imm_func(op##_rm_imm8, op##_rm_imm32, 1, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
+#define asm_mem_reg(op, ...) asm_mem_reg_func(op##_rm_reg, 1, __VA_ARGS__)
+#define asm_mem_imm(op, ...) asm_mem_imm_func(op##_rm_imm8, op##_rm_imm32, 1, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
 
 INLINE uint32_t *asm_jump(const char *target) {
     uint32_t rel = (uint32_t)(target - (here + 2));
