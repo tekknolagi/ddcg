@@ -209,7 +209,7 @@ INLINE void asm_imul_reg_imm(uint64_t dest_reg, uint64_t src_imm) {
 }
 
 INLINE void asm_idiv_reg(uint64_t src_reg) {
-    emit_instr(0xF7, 1, 0x07, src_reg, 0, direct(0x07, src_reg), 1);
+    asm_reg_reg_func(0xF7, 1, 0x07, src_reg);
 }
 
 INLINE void asm_movzx_reg_reg8(uint64_t dest_reg, uint64_t src_reg) {
@@ -225,7 +225,7 @@ INLINE void asm_movzx_reg_reg16(uint64_t dest_reg, uint64_t src_reg) {
 }
 
 INLINE void asm_movzx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
-    asm_rx_mem(0xb70F, 2, dest_reg, src_mem);
+    asm_rx_mem(0xB70F, 2, dest_reg, src_mem);
 }
 
 INLINE void asm_movzx_reg_reg32(uint64_t dest_reg, uint64_t src_reg) {
