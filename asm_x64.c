@@ -24,10 +24,6 @@ INLINE uint64_t mod_rx_rm(uint64_t mod, uint64_t rx, uint64_t rm) {
     return (rm & 7) | ((rx & 7) << 3) | (mod << 6); // 1
 }
 
-enum {
-    W = 0x8
-};
-
 INLINE uint64_t rexw(uint8_t rx, uint8_t base, uint8_t index) {
     return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); 
 }
