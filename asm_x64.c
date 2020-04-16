@@ -17,15 +17,15 @@ enum {
     INDIRECT, INDIRECT_DISP8, INDIRECT_DISP32, DIRECT
 };
 
+INLINE uint64_t rexw(uint8_t rx, uint8_t base, uint8_t index) {
+    return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); // 1
+}
+
 INLINE uint64_t mod_rx_rm(uint64_t mod, uint64_t rx, uint64_t rm) {
     assert(mod < 4);
     assert(rx < 16);
     assert(rm < 16);
     return (rm & 7) | ((rx & 7) << 3) | (mod << 6); // 1
-}
-
-INLINE uint64_t rexw(uint8_t rx, uint8_t base, uint8_t index) {
-    return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); 
 }
 
 INLINE uint64_t direct(uint64_t rx, uint64_t reg) {
