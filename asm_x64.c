@@ -1,27 +1,29 @@
-enum {
+enum Reg {
     RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI,
-    R8,  R9,  R10, R11, R12, R13, R14, R15
+    R8,  R9,  R10, R11, R12, R13, R14, R15,
 };
 
-enum {
+enum Scale {
     X1, X2, X4, X8
 };
 
-enum {
-    O, NO, B, NB, E, NE, NA, A, S, NS, P, NP, L, NL, NG, G,
-    NAE = B, C = B, AE = NB, NC = NB, Z = E, NZ = NE, BE = NA,
-    NBE = A, PE = P, PO = NP, NGE = L, GE = NL, LE = NG, NLE = G
+enum CondCode {
+    O, NO, B, NB, E, NE, NA, A,
+    S, NS, P, NP, L, NL, NG, G,
+
+    LE = NG, GE = NL, BE = NA, AE = NB,
 };
 
-enum {
+enum Mode {
     INDIRECT, INDIRECT_DISP8, INDIRECT_DISP32, DIRECT
 };
 
-INLINE uint64_t rexw(uint64_t rx, uint64_t base, uint64_t index) {
+INLINE uint64_t rex(uint64_t rx, uint64_t base, uint64_t index, uint64_t w) {
     assert(rx < 16);
     assert(base < 16);
     assert(index < 16);
-    return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); // 1
+    assert(w < 2);
+    return 0x40 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2) | (w << 3); // 1
 }
 
 INLINE uint64_t mod_rx_rm(uint64_t mod, uint64_t rx, uint64_t rm) {
@@ -93,17 +95,17 @@ INLINE void emit(uint64_t data, int len) {
 }
 
 INLINE void emit_instr(uint64_t op, int oplen, uint64_t rx, uint64_t base, uint64_t index, uint64_t ext, int extlen) {
-    uint64_t prefix = rexw(rx, base, index);
+    uint64_t prefix = rex(rx, base, index, 1);
     int prefixlen = 1;
     uint64_t instr = prefix | (op << (8 * prefixlen)) | (ext << (8 * (prefixlen + oplen)));
     int instrlen = prefixlen + oplen + extlen;
     emit(instr, instrlen);
 }
 
-//    op    reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
+//    op      reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
 #define BINARY_OPS(_) \
-    _(ADD,  0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
-    _(AND,  0x23,   0x21,   0x83,    0x04,     0x81,     0x04)
+    _(ADD,    0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
+    _(AND,    0x23,   0x21,   0x83,    0x04,     0x81,     0x04) \
 
 #define BINARY_FIELDS(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     op##_reg_rm = reg_rm, op##_rm_reg = rm_reg, \
@@ -197,6 +199,74 @@ INLINE void asm_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx
 #define asm_reg_imm(op, ...) asm_reg_imm_func(op##_rm_imm8, op##_rm_imm32, 1, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
 #define asm_mem_reg(op, ...) asm_mem_reg_func(op##_rm_reg, 1, __VA_ARGS__)
 #define asm_mem_imm(op, ...) asm_mem_imm_func(op##_rm_imm8, op##_rm_imm32, 1, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
+
+INLINE void asm_imul_reg_reg(uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(0xAF0F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+}
+
+INLINE void asm_imul_reg_imm(uint64_t dest_reg, uint64_t src_imm) {
+    if (isimm8(src_imm)) {
+        emit_instr(0x6B, 1, dest_reg, dest_reg, 0, direct(dest_reg, dest_reg) | (src_imm << 8), 2);
+    } else {
+        emit_instr(0x69, 1, dest_reg, dest_reg, 0, direct(dest_reg, dest_reg) | (src_imm << 8), 5);
+    }
+}
+
+INLINE void asm_idiv_reg(uint64_t src_reg) {
+    emit_instr(0xF7, 1, 0x07, src_reg, 0, direct(0x07, src_reg), 1);
+}
+
+INLINE void asm_movzx_reg_reg8(uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(0xB60F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+}
+
+INLINE void asm_movzx_reg_mem8(uint64_t dest_reg, Mem src_mem) {
+    asm_rx_mem(0xB60F, 2, dest_reg, src_mem);
+}
+
+INLINE void asm_movzx_reg_reg16(uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(0xB70F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+}
+
+INLINE void asm_movzx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
+    asm_rx_mem(0xb70F, 2, dest_reg, src_mem);
+}
+
+INLINE void asm_movzx_reg_reg32(uint64_t dest_reg, uint64_t src_reg) {
+    uint8_t *start = here;
+    emit_instr(0x8B, 1, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    *start &= ~8;
+}
+
+INLINE void asm_movzx_reg_mem32(uint64_t dest_reg, Mem src_mem) {
+    uint8_t *start = here;
+    asm_rx_mem(0x8B, 1, dest_reg, src_mem);
+    *start &= ~8;
+}
+
+INLINE void asm_movsx_reg_reg8(uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(0xBE0F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+}
+
+INLINE void asm_movsx_reg_mem8(uint64_t dest_reg, Mem src_mem) {
+    asm_rx_mem(0xBE0F, 2, dest_reg, src_mem);
+}
+
+INLINE void asm_movsx_reg_reg16(uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(0xBF0F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+}
+
+INLINE void asm_movsx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
+    asm_rx_mem(0xBF0F, 2, dest_reg, src_mem);
+}
+
+INLINE void asm_movsx_reg_reg32(uint64_t dest_reg, uint64_t src_reg) {
+    emit_instr(0x63, 1, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+}
+
+INLINE void asm_movsx_reg_mem32(uint64_t dest_reg, Mem src_mem) {
+    asm_rx_mem(0x63, 1, dest_reg, src_mem);
+}
 
 INLINE uint32_t *asm_jump(const char *target) {
     uint32_t rel = (uint32_t)(target - (here + 2));
