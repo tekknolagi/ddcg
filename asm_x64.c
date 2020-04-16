@@ -18,6 +18,9 @@ enum {
 };
 
 INLINE uint64_t rexw(uint64_t rx, uint64_t base, uint64_t index) {
+    assert(rx < 16);
+    assert(base < 16);
+    assert(index < 16);
     return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); // 1
 }
 
@@ -203,24 +206,24 @@ INLINE void asm_mem_imm(uint64_t op, uint64_t dest_base, uint64_t dest_index, ui
 }
 
 INLINE uint32_t *asm_jump(const char *target) {
-    uint32_t offset = (uint32_t)(target - (here + 2));
-    if (isrel8(offset)) {
-        emit(0xEB | (offset << 8), 2);
+    uint32_t rel = (uint32_t)(target - (here + 2));
+    if (isrel8(rel)) {
+        emit(0xEB | (rel << 8), 2);
         return 0;
     } else {
-        emit(0xE9 | ((offset - 3) << 8), 5);
+        emit(0xE9 | ((rel - 3) << 8), 5);
         return (uint32_t *)(here - 4);
     }
 }
 
 INLINE uint32_t *asm_jump_if(uint64_t cond, const char *target) {
     assert(cond < 16);
-    uint32_t offset = (uint32_t)(target - (here + 2));
-    if (isrel8(offset)) {
-        emit(0x70 | cond | (offset << 8), 2);
+    uint32_t rel = (uint32_t)(target - (here + 2));
+    if (isrel8(rel)) {
+        emit(0x70 | cond | (rel << 8), 2);
         return 0;
     } else {
-        emit(0x800F | (cond << 8) | ((offset  - 4) << 16), 6);
+        emit(0x800F | (cond << 8) | ((rel - 4) << 16), 6);
         return (uint32_t *)(here - 4);
     }
 }
