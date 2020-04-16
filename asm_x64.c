@@ -17,7 +17,7 @@ enum {
     INDIRECT, INDIRECT_DISP8, INDIRECT_DISP32, DIRECT
 };
 
-INLINE uint64_t rexw(uint8_t rx, uint8_t base, uint8_t index) {
+INLINE uint64_t rexw(uint64_t rx, uint64_t base, uint64_t index) {
     return 0x48 | (base >> 3) | ((index >> 3) << 1) | ((rx >> 3) << 2); // 1
 }
 
