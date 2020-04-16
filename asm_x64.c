@@ -77,7 +77,7 @@ INLINE void emit(uint64_t data, int len) {
     here += len;
 }
 
-INLINE void emit_instr(uint8_t rx, uint8_t base, uint8_t index, uint64_t opcode, int opcodelen, uint64_t ext, int extlen) {
+INLINE void emit_instr(uint64_t rx, uint64_t base, uint64_t index, uint64_t opcode, int opcodelen, uint64_t ext, int extlen) {
     uint64_t prefix = rexw(rx, base, index);
     int prefixlen = 1;
     uint64_t instr = prefix | (opcode << (8 * prefixlen)) | (ext << (8 * (prefixlen + opcodelen)));
@@ -108,10 +108,11 @@ enum {
     BINARY_OPS(ENUM)
 };
 
-INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint8_t base, uint8_t index, uint8_t scale, uint32_t disp) {
+INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
     uint64_t addr;
     int addrlen;
-    if (index == 0xFF) {
+    if (index == -1) {
+        index = 0;
         if (disp || (base & 7) == RBP) {
             if (disp + 128 < 256) {
                 addr = indirect_disp8(rx, base, disp);
@@ -141,28 +142,28 @@ INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint8_t base
     emit_instr(rx, base, index, opcode, opcodelen, addr, addrlen);
 }
 
-INLINE void asm_reg_reg(uint64_t op, uint8_t dest_reg, uint8_t src_reg) {
+INLINE void asm_reg_reg(uint64_t op, uint64_t dest_reg, uint64_t src_reg) {
     uint64_t opcode;
     int opcodelen;
     BINARY_OPS(REG_RM);
     emit_instr(dest_reg, src_reg, 0, opcode, opcodelen, direct(dest_reg, src_reg), 1);
 }
 
-INLINE void asm_reg_mem(uint64_t op, uint8_t dest_reg, uint8_t src_base, uint8_t src_index, uint8_t src_scale, uint32_t src_disp) {
+INLINE void asm_reg_mem(uint64_t op, uint64_t dest_reg, uint64_t src_base, uint64_t src_index, uint64_t src_scale, uint64_t src_disp) {
     uint64_t opcode;
     int opcodelen;
     BINARY_OPS(REG_RM);
     asm_rx_mem(opcode, opcodelen, dest_reg, src_base, src_index, src_scale, src_disp);
 }
 
-INLINE void asm_mem_reg(uint64_t op, uint8_t dest_base, uint8_t dest_index, uint8_t dest_scale, uint32_t dest_disp, uint32_t src_reg) {
+INLINE void asm_mem_reg(uint64_t op, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_reg) {
     uint64_t opcode;
     int opcodelen;
     BINARY_OPS(RM_REG);
     asm_rx_mem(opcode, opcodelen, src_reg, dest_base, dest_index, dest_scale, dest_disp);
 }
 
-INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint32_t src_imm) {
+INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint64_t src_imm) {
     uint64_t opcode, rx;
     int opcodelen, immlen;
     if (src_imm + 128 < 256) {
@@ -175,7 +176,7 @@ INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint32_t src_imm) {
     emit_instr(rx, dest_reg, 0, opcode, opcodelen, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
 }
 
-INLINE void asm_mem_imm(uint64_t op, uint8_t dest_base, uint8_t dest_index, uint8_t dest_scale, uint32_t dest_disp, uint32_t src_imm) {
+INLINE void asm_mem_imm(uint64_t op, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_imm) {
     uint64_t opcode, rx;
     int opcodelen;
     if (src_imm + 128 < 256) {
