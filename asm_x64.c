@@ -92,7 +92,7 @@ INLINE void emit(uint64_t data, int len) {
     here += len;
 }
 
-INLINE void emit_instr(uint64_t rx, uint64_t base, uint64_t index, uint64_t op, int oplen, uint64_t ext, int extlen) {
+INLINE void emit_instr(uint64_t op, int oplen, uint64_t rx, uint64_t base, uint64_t index, uint64_t ext, int extlen) {
     uint64_t prefix = rexw(rx, base, index);
     int prefixlen = 1;
     uint64_t instr = prefix | (op << (8 * prefixlen)) | (ext << (8 * (prefixlen + oplen)));
@@ -152,11 +152,11 @@ INLINE void asm_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
             addrlen = 2;
         }
     }
-    emit_instr(rx, mem.base, mem.index, op, oplen, addr, addrlen);
+    emit_instr(op, oplen, rx, mem.base, mem.index, addr, addrlen);
 }
 
 INLINE void asm_reg_reg_func(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(dest_reg, src_reg, 0, op, oplen, direct(dest_reg, src_reg), 1);
+    emit_instr(op, oplen, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
 }
 
 INLINE void asm_reg_mem_func(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
@@ -179,7 +179,7 @@ INLINE void asm_reg_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx
         rx = rx32;
         immlen = 4;
     }
-    emit_instr(rx, dest_reg, 0, op, oplen, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
+    emit_instr(op, oplen, rx, dest_reg, 0, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
 }
 
 INLINE void asm_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
