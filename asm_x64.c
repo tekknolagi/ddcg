@@ -105,7 +105,7 @@ enum {
 INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint8_t base, uint8_t index, uint8_t scale, uint32_t disp) {
     uint64_t prefix, addr;
     int prefixlen, addrlen;
-    if (index == -1) {
+    if (index == 0xFF) {
         prefix = rex(rx, base);
         prefixlen = 1;
         if (disp || (base & 7) == RBP) {
