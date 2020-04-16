@@ -191,16 +191,24 @@ INLINE void asm_mem_imm(uint64_t op, uint64_t dest_base, uint64_t dest_index, ui
 }
 
 INLINE uint32_t *asm_jump(const char *target) {
-    uint32_t offset = (uint32_t)(target - (here + 5));
-    emit(0xE9 | (offset << 8), 5);
-    return (uint32_t *)(here - 4);
+    uint32_t offset = (uint32_t)(target - (here + 2));
+    if (offset + 128 < 256) {
+        emit(0xEB | (offset << 8), 2);
+    } else {
+        emit(0xE9 | ((offset - 3) << 8), 5);
+    }
+    return target ? 0 : (uint32_t *)(here - 4);
 }
 
 INLINE uint32_t *asm_jump_if(uint64_t cond, const char *target) {
     assert(cond < 16);
-    uint32_t offset = (uint32_t)(target - (here + 6));
-    emit(0x800F | (cond << 8) | (offset << 16), 6);
-    return (uint32_t *)(here - 4);
+    uint32_t offset = (uint32_t)(target - (here + 2));
+    if (offset + 128 < 256) {
+        emit(0x70 | cond | (offset << 8), 2);
+    } else {
+        emit(0x800F | (cond << 8) | ((offset  - 4) << 16), 6);
+    }
+    return target ? 0 : (uint32_t *)(here - 4);
 }
 
 INLINE void asm_patch_jump(uint32_t *jump_field, const char *target) {
