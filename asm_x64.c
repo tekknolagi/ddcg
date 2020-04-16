@@ -7,7 +7,7 @@ enum Scale {
     X1, X2, X4, X8
 };
 
-enum CondCode {
+enum Cond {
     O, NO, B, NB, E, NE, NA, A,
     S, NS, P, NP, L, NL, NG, G,
 
@@ -201,15 +201,11 @@ INLINE void asm_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx
 #define asm_mem_imm(op, ...) asm_mem_imm_func(op##_rm_imm8, op##_rm_imm32, 1, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
 
 INLINE void asm_imul_reg_reg(uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(0xAF0F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0xAF0F, 2, dest_reg, src_reg);
 }
 
 INLINE void asm_imul_reg_imm(uint64_t dest_reg, uint64_t src_imm) {
-    if (isimm8(src_imm)) {
-        emit_instr(0x6B, 1, dest_reg, dest_reg, 0, direct(dest_reg, dest_reg) | (src_imm << 8), 2);
-    } else {
-        emit_instr(0x69, 1, dest_reg, dest_reg, 0, direct(dest_reg, dest_reg) | (src_imm << 8), 5);
-    }
+    asm_reg_imm_func(0x6B, 0x69, 1, 0, 0, dest_reg, src_imm);
 }
 
 INLINE void asm_idiv_reg(uint64_t src_reg) {
@@ -217,7 +213,7 @@ INLINE void asm_idiv_reg(uint64_t src_reg) {
 }
 
 INLINE void asm_movzx_reg_reg8(uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(0xB60F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0xB60F, 2, dest_reg, src_reg);
 }
 
 INLINE void asm_movzx_reg_mem8(uint64_t dest_reg, Mem src_mem) {
@@ -225,7 +221,7 @@ INLINE void asm_movzx_reg_mem8(uint64_t dest_reg, Mem src_mem) {
 }
 
 INLINE void asm_movzx_reg_reg16(uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(0xB70F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0xB70F, 2, dest_reg, src_reg);
 }
 
 INLINE void asm_movzx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
@@ -234,7 +230,7 @@ INLINE void asm_movzx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
 
 INLINE void asm_movzx_reg_reg32(uint64_t dest_reg, uint64_t src_reg) {
     uint8_t *start = here;
-    emit_instr(0x8B, 1, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0x8B, 1, dest_reg, src_reg);
     *start &= ~8;
 }
 
@@ -245,7 +241,7 @@ INLINE void asm_movzx_reg_mem32(uint64_t dest_reg, Mem src_mem) {
 }
 
 INLINE void asm_movsx_reg_reg8(uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(0xBE0F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0xBE0F, 2, dest_reg, src_reg);
 }
 
 INLINE void asm_movsx_reg_mem8(uint64_t dest_reg, Mem src_mem) {
@@ -253,7 +249,7 @@ INLINE void asm_movsx_reg_mem8(uint64_t dest_reg, Mem src_mem) {
 }
 
 INLINE void asm_movsx_reg_reg16(uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(0xBF0F, 2, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0xBF0F, 2, dest_reg, src_reg);
 }
 
 INLINE void asm_movsx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
@@ -261,7 +257,7 @@ INLINE void asm_movsx_reg_mem16(uint64_t dest_reg, Mem src_mem) {
 }
 
 INLINE void asm_movsx_reg_reg32(uint64_t dest_reg, uint64_t src_reg) {
-    emit_instr(0x63, 1, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
+    asm_reg_reg_func(0x63, 1, dest_reg, src_reg);
 }
 
 INLINE void asm_movsx_reg_mem32(uint64_t dest_reg, Mem src_mem) {
