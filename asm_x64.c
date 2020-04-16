@@ -69,6 +69,18 @@ INLINE uint64_t disp32(uint64_t rx, uint64_t disp) {
     return mod_rx_rm(INDIRECT, rx, RSP) | (mod_rx_rm(X1, RSP, RBP) << 8) | (disp << 16); // 6
 }
 
+INLINE int isimm8(uint64_t imm) {
+    return imm + 128 < 256;
+}
+
+INLINE int isdisp8(uint64_t disp) {
+    return disp + 128 < 256;
+}
+
+INLINE int isrel8(uint32_t rel) {
+    return rel + 128 < 256;
+}
+
 char *here;
 
 INLINE void emit(uint64_t data, int len) {
@@ -114,7 +126,7 @@ INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint64_t bas
     if (index == -1) {
         index = 0;
         if (disp || (base & 7) == RBP) {
-            if (disp + 128 < 256) {
+            if (isdisp8(disp)) {
                 addr = indirect_disp8(rx, base, disp);
                 addrlen = 2;
             } else {
@@ -127,7 +139,7 @@ INLINE void asm_rx_mem(uint64_t opcode, int opcodelen, uint64_t rx, uint64_t bas
         }
     } else {
         if (disp || (base & 7) == RBP) {
-            if (disp + 128 < 256) {
+            if (isdisp8(disp)) {
                 addr = indirect_index_disp8(rx, base, index, scale, disp);
                 addrlen = 3;
             } else {
@@ -166,7 +178,7 @@ INLINE void asm_mem_reg(uint64_t op, uint64_t dest_base, uint64_t dest_index, ui
 INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint64_t src_imm) {
     uint64_t opcode, rx;
     int opcodelen, immlen;
-    if (src_imm + 128 < 256) {
+    if (isimm8(src_imm)) {
         BINARY_OPS(RM_IMM8);
         immlen = 1;
     } else {
@@ -179,7 +191,7 @@ INLINE void asm_reg_imm(uint64_t op, uint64_t dest_reg, uint64_t src_imm) {
 INLINE void asm_mem_imm(uint64_t op, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_imm) {
     uint64_t opcode, rx;
     int opcodelen;
-    if (src_imm + 128 < 256) {
+    if (isimm8(src_imm)) {
         BINARY_OPS(RM_IMM8);
         asm_rx_mem(opcode, opcodelen, rx, dest_base, dest_index, dest_scale, dest_disp);
         emit(src_imm, 1);
@@ -192,23 +204,25 @@ INLINE void asm_mem_imm(uint64_t op, uint64_t dest_base, uint64_t dest_index, ui
 
 INLINE uint32_t *asm_jump(const char *target) {
     uint32_t offset = (uint32_t)(target - (here + 2));
-    if (offset + 128 < 256) {
+    if (isrel8(offset)) {
         emit(0xEB | (offset << 8), 2);
+        return 0;
     } else {
         emit(0xE9 | ((offset - 3) << 8), 5);
+        return (uint32_t *)(here - 4);
     }
-    return target ? 0 : (uint32_t *)(here - 4);
 }
 
 INLINE uint32_t *asm_jump_if(uint64_t cond, const char *target) {
     assert(cond < 16);
     uint32_t offset = (uint32_t)(target - (here + 2));
-    if (offset + 128 < 256) {
+    if (isrel8(offset)) {
         emit(0x70 | cond | (offset << 8), 2);
+        return 0;
     } else {
         emit(0x800F | (cond << 8) | ((offset  - 4) << 16), 6);
+        return (uint32_t *)(here - 4);
     }
-    return target ? 0 : (uint32_t *)(here - 4);
 }
 
 INLINE void asm_patch_jump(uint32_t *jump_field, const char *target) {
