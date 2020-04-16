@@ -114,50 +114,57 @@ enum {
     BINARY_OPS(BINARY_FIELDS)
 };
 
-INLINE void asm_rx_mem(uint64_t op, int oplen, uint64_t rx, uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
+typedef struct {
+    uint64_t base;
+    uint64_t index;
+    uint64_t scale;
+    uint64_t disp;
+} Mem;
+
+INLINE void asm_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
     uint64_t addr;
     int addrlen;
-    if (index == -1) {
-        index = 0;
-        if (disp || (base & 7) == RBP) {
-            if (isdisp8(disp)) {
-                addr = indirect_disp8(rx, base, disp);
+    if (mem.index == -1) {
+        mem.index = 0;
+        if (mem.disp || (mem.base & 7) == RBP) {
+            if (isdisp8(mem.disp)) {
+                addr = indirect_disp8(rx, mem.base, mem.disp);
                 addrlen = 2;
             } else {
-                addr = indirect_disp32(rx, base, disp);
+                addr = indirect_disp32(rx, mem.base, mem.disp);
                 addrlen = 5;
             }
         } else {
-            addr = indirect(rx, base);
+            addr = indirect(rx, mem.base);
             addrlen = 1;
         }
     } else {
-        if (disp || (base & 7) == RBP) {
-            if (isdisp8(disp)) {
-                addr = indirect_index_disp8(rx, base, index, scale, disp);
+        if (mem.disp || (mem.base & 7) == RBP) {
+            if (isdisp8(mem.disp)) {
+                addr = indirect_index_disp8(rx, mem.base, mem.index, mem.scale, mem.disp);
                 addrlen = 3;
             } else {
-                addr = indirect_index_disp32(rx, base, index, scale, disp);
+                addr = indirect_index_disp32(rx, mem.base, mem.index, mem.scale, mem.disp);
                 addrlen = 6;
             }
         } else {
-            addr = indirect_index(rx, base, index, scale);
+            addr = indirect_index(rx, mem.base, mem.index, mem.scale);
             addrlen = 2;
         }
     }
-    emit_instr(rx, base, index, op, oplen, addr, addrlen);
+    emit_instr(rx, mem.base, mem.index, op, oplen, addr, addrlen);
 }
 
 INLINE void asm_reg_reg_func(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
     emit_instr(dest_reg, src_reg, 0, op, oplen, direct(dest_reg, src_reg), 1);
 }
 
-INLINE void asm_reg_mem_func(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_base, uint64_t src_index, uint64_t src_scale, uint64_t src_disp) {
-    asm_rx_mem(op, oplen, dest_reg, src_base, src_index, src_scale, src_disp);
+INLINE void asm_reg_mem_func(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
+    asm_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
-INLINE void asm_mem_reg_func(uint64_t op, int oplen, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_reg) {
-    asm_rx_mem(op, oplen, src_reg, dest_base, dest_index, dest_scale, dest_disp);
+INLINE void asm_mem_reg_func(uint64_t op, int oplen, Mem dest_mem, uint64_t src_reg) {
+    asm_rx_mem(op, oplen, src_reg, dest_mem);
 }
 
 INLINE void asm_reg_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
@@ -175,12 +182,12 @@ INLINE void asm_reg_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx
     emit_instr(rx, dest_reg, 0, op, oplen, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
 }
 
-INLINE void asm_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_base, uint64_t dest_index, uint64_t dest_scale, uint64_t dest_disp, uint64_t src_imm) {
+INLINE void asm_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
     if (isimm8(src_imm)) {
-        asm_rx_mem(op8, oplen, rx8, dest_base, dest_index, dest_scale, dest_disp);
+        asm_rx_mem(op8, oplen, rx8, dest_mem);
         emit(src_imm, 1);
     } else {
-        asm_rx_mem(op32, oplen, rx32, dest_base, dest_index, dest_scale, dest_disp);
+        asm_rx_mem(op32, oplen, rx32, dest_mem);
         emit(src_imm, 4);
     }
 }
