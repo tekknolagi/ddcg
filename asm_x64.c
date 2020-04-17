@@ -271,7 +271,7 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
     _(movss,  0x100F,  0xF3) \
 //  _(name,   reg_rm,  prefix)
 
-#define X64_BINARY_FUNCS(name, rm_reg, reg_rm, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+#define X64_BINARY_FUNCS(name, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
     X64_OP_REG_REG(name, reg_rm, 1) \
     X64_OP_REG_MEM(name, reg_rm, 1) \
     X64_OP_REG_IMM(name, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x) \
