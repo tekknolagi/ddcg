@@ -354,3 +354,29 @@ INLINE uint32_t *jmp_if(uint64_t cond, const char *target) {
 INLINE void patch_jmp(uint32_t *jmp_rel, const char *target) {
     *jmp_rel = (uint32_t)(target - ((char *)jmp_rel + 4));
 }
+
+// Helpers
+
+INLINE Mem base(uint64_t base) {
+    return (Mem){.base = base, .index = -1};
+}
+
+INLINE Mem base_disp(uint64_t base, uint64_t disp) {
+    return (Mem){.base = base, .index = -1, .disp = disp};
+}
+
+INLINE Mem base_index(uint64_t base, uint64_t index) {
+    return (Mem){.base = base, .index = index};
+}
+
+INLINE Mem base_index_disp(uint64_t base, uint64_t index, uint64_t disp) {
+    return (Mem){.base = base, .index = index, .disp = disp};
+}
+
+INLINE Mem base_index_scale(uint64_t base, uint64_t index, uint64_t scale) {
+    return (Mem){.base = base, .index = index, .scale = scale};
+}
+
+INLINE Mem base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
+    return (Mem){.base = base, .index = index, .scale = scale, .disp = disp};
+}
