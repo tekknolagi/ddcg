@@ -126,7 +126,7 @@ enum {
     _(IDIV, 0xF7, 0x07)
 
 #define UNARY_FIELDS(op, unary, rx) \
-    op##_unary = unary, op##_rx = rx, op##_len = 1,
+    op##_reg = unary, op##_rx = rx, op##_len = 1,
 
 enum {
     UNARY_OPS(UNARY_FIELDS)
@@ -318,6 +318,6 @@ INLINE void x64_patch_jump(uint32_t *jump_field, const char *target) {
 #define x64_reg_imm(op, ...) x64_reg_imm_func(op##_rm_imm8, op##_rm_imm32, op##_immlen, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
 #define x64_mem_reg(op, ...) x64_mem_reg_func(op##_rm_reg, op##_len, __VA_ARGS__)
 #define x64_mem_imm(op, ...) x64_mem_imm_func(op##_rm_imm8, op##_rm_imm32, op##_immlen, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
-#define x64_reg(op, ...)     x64_reg_func(op##_unary, op##_len, op##_rx, __VA_ARGS__)
+#define x64_reg(op, ...)     x64_reg_func(op##_reg, op##_len, op##_rx, __VA_ARGS__)
 #define sse_reg_reg(op, ...) sse_reg_reg_func(op##_sse, 2, op##_prefix, __VA_ARGS__)
 #define sse_reg_mem(op, ...) sse_reg_mem_func(op##_sse, 2, op##_prefix, __VA_ARGS__)
