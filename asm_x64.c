@@ -207,43 +207,50 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
     }
 }
 
+// x64 instruction emitters
+
 #define X64_OP_REG(name, op, oplen, rx) \
-    void name##_reg(uint64_t reg) { \
+    INLINE void name##_reg(uint64_t reg) { \
         emit_op_reg(op, oplen, rx, reg); \
     }
 
 #define X64_OP_REG_REG(name, op, oplen) \
-    void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
+    INLINE void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
         emit_op_reg_reg(op, oplen, dest_reg, src_reg); \
     }
 
 #define X64_OP_REG_MEM(name, op, oplen) \
-    void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
+    INLINE void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
         emit_op_reg_mem(op, oplen, dest_reg, src_mem); \
     }
 
 #define X64_OP_MEM_REG(name, op, oplen) \
-    void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
+    INLINE void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
         emit_op_mem_reg(op, oplen, dest_mem, src_reg); \
     }
 
 #define X64_OP_REG_IMM(name, op8, op32, oplen, rx8, rx32) \
-    void name##_reg_imm(uint64_t dest_reg, uint64_t src_imm) { \
+    INLINE void name##_reg_imm(uint64_t dest_reg, uint64_t src_imm) { \
         emit_op_reg_imm(op8, op32, oplen, rx8, rx32, dest_reg, src_imm); \
     }
 
 #define X64_OP_MEM_IMM(name, op8, op32, oplen, rx8, rx32) \
-    void name##_mem_imm(Mem dest_mem, uint64_t src_imm) { \
+    INLINE void name##_mem_imm(Mem dest_mem, uint64_t src_imm) { \
         emit_op_mem_imm(op8, op32, oplen, rx8, rx32, dest_mem, src_imm); \
     }
 
 #define SSE_OP_REG_REG(name, op, oplen, prefix) \
-    void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
+    INLINE void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
         emit_sse_op_reg_reg(op, oplen, prefix, dest_reg, src_reg); \
     }
 
+#define SSE_OP_MEM_REG(name, op, oplen, prefix) \
+    void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
+        emit_sse_op_mem_reg(op, oplen, prefix, dest_mem, src_reg); \
+    }
+
 #define SSE_OP_REG_MEM(name, op, oplen, prefix) \
-    void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
+    INLINE void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
         emit_sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
     }
 
@@ -259,12 +266,7 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
     SSE_OP_REG_REG(name, op, oplen, prefix) \
     SSE_OP_REG_MEM(name, op, oplen, prefix)
 
-#define SSE_OP_MEM_REG(name, op, oplen, prefix) \
-    void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
-        emit_sse_op_mem_reg(op, oplen, prefix, dest_mem, src_reg); \
-    }
-
-// x64 instructions
+// x64 instruction definitions
 
 #define X64_UNARY_TABLE(_) \
     _(neg,    0xF7,    0x03) \
@@ -356,7 +358,7 @@ INLINE void patch_jmp(uint32_t *rel_ptr, const char *target) {
     *rel_ptr = (uint32_t)(target - ((char *)rel_ptr + 4));
 }
 
-// Helpers
+// addressing helpers
 
 INLINE Mem base(uint64_t base) {
     return (Mem){.base = base, .index = -1};
