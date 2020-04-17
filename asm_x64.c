@@ -1,3 +1,5 @@
+// x64 encoding
+
 enum Reg {
     RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI,
     R8,  R9,  R10, R11, R12, R13, R14, R15,
@@ -22,7 +24,6 @@ enum Cond {
 enum Mode {
     INDIRECT, INDIRECT_DISP8, INDIRECT_DISP32, DIRECT
 };
-
 
 INLINE uint64_t rexw(uint64_t rx, uint64_t base, uint64_t index) {
     assert(rx < 16);
@@ -239,7 +240,7 @@ INLINE void x64_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8,
         sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
     }
 
-// Instruction tables
+// x64 instructions
 
 //    op      reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
 #define X64_BINARY_OPS(_) \
@@ -280,7 +281,7 @@ X64_OP_REG_IMM(imul, 0x6B, 0x69, 1, 0, 0)
 X64_OP_REG(shl, 0xD3, 1, 0x04)
 X64_OP_REG_IMM(shl, 0xC1, 0, 1, 0x04, 0)
 
-INLINE void x64_movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
+INLINE void movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
     if (src_size == 1) {
         x64_op_reg_reg(0xB60F, 2, dest_reg, src_reg);
     } else if (src_size == 2) {
@@ -292,7 +293,7 @@ INLINE void x64_movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size)
         *start &= ~8;
     }
 }
-INLINE void x64_movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
+INLINE void movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     if (src_size == 1) {
         x64_rx_mem(0xB60F, 2, dest_reg, src_mem);
     } else if (src_size == 2) {
@@ -305,7 +306,7 @@ INLINE void x64_movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     }
 }
 
-INLINE void x64_movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
+INLINE void movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
     if (src_size == 1) {
         x64_op_reg_reg(0xBE0F, 2, dest_reg, src_reg);
     } else if (src_size == 2) {
@@ -316,7 +317,7 @@ INLINE void x64_movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size)
     }
 }
 
-INLINE void x64_movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
+INLINE void movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     if (src_size == 1) {
         x64_rx_mem(0xBE0F, 2, dest_reg, src_mem);
     } else if (src_size == 2) {
@@ -327,7 +328,7 @@ INLINE void x64_movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     }
 }
 
-INLINE uint32_t *x64_jump(const char *target) {
+INLINE uint32_t *jmp(const char *target) {
     uint32_t rel = (uint32_t)(target - (here + 2));
     if (isrel8(rel)) {
         emit(0xEB | (rel << 8), 2);
@@ -338,7 +339,7 @@ INLINE uint32_t *x64_jump(const char *target) {
     }
 }
 
-INLINE uint32_t *x64_jump_if(uint64_t cond, const char *target) {
+INLINE uint32_t *jmp_if(uint64_t cond, const char *target) {
     assert(cond < 16);
     uint32_t rel = (uint32_t)(target - (here + 2));
     if (isrel8(rel)) {
@@ -350,6 +351,6 @@ INLINE uint32_t *x64_jump_if(uint64_t cond, const char *target) {
     }
 }
 
-INLINE void x64_patch_jump(uint32_t *jump_field, const char *target) {
+INLINE void patch_jmp(uint32_t *jump_field, const char *target) {
     *jump_field = (uint32_t)(target - ((char *)jump_field + 4));
 }
