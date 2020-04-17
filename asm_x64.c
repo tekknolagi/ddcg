@@ -115,7 +115,7 @@ typedef struct {
     uint64_t disp;
 } Mem;
 
-INLINE void x64_op_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
+INLINE void emit_op_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
     uint64_t addr;
     int addrlen;
     if (mem.index == -1) {
@@ -149,33 +149,33 @@ INLINE void x64_op_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
     emit_instr(op, oplen, rx, mem.base, mem.index, addr, addrlen);
 }
 
-INLINE void x64_op_reg_reg(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
+INLINE void emit_op_reg_reg(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
     emit_instr(op, oplen, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
 }
 
-INLINE void x64_op_reg_mem(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
-    x64_op_rx_mem(op, oplen, dest_reg, src_mem);
+INLINE void emit_op_reg_mem(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
+    emit_op_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
-INLINE void x64_op_mem_reg(uint64_t op, int oplen, Mem dest_mem, uint64_t src_reg) {
-    x64_op_rx_mem(op, oplen, src_reg, dest_mem);
+INLINE void emit_op_mem_reg(uint64_t op, int oplen, Mem dest_mem, uint64_t src_reg) {
+    emit_op_rx_mem(op, oplen, src_reg, dest_mem);
 }
 
-INLINE void x64_op_reg(uint64_t op, int oplen, uint64_t rx, uint64_t reg) {
-    x64_op_reg_reg(op, oplen, rx, reg);
+INLINE void emit_op_reg(uint64_t op, int oplen, uint64_t rx, uint64_t reg) {
+    emit_op_reg_reg(op, oplen, rx, reg);
 }
 
-INLINE void sse_op_reg_reg(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, uint64_t src_reg) {
+INLINE void emit_sse_op_reg_reg(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, uint64_t src_reg) {
     emit(prefix, 1);
-    x64_op_reg_reg(op, oplen, dest_reg, src_reg);
+    emit_op_reg_reg(op, oplen, dest_reg, src_reg);
 }
 
-INLINE void sse_op_reg_mem(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, Mem src_mem) {
+INLINE void emit_sse_op_reg_mem(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, Mem src_mem) {
     emit(prefix, 1);
-    x64_op_rx_mem(op, oplen, dest_reg, src_mem);
+    emit_op_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
-INLINE void x64_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
+INLINE void emit_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
     uint64_t op, rx;
     int immlen;
     if ((isimm8(src_imm) && op8) || !op32) {
@@ -190,54 +190,54 @@ INLINE void x64_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8,
     emit_instr(op, oplen, rx, dest_reg, 0, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
 }
 
-INLINE void x64_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
+INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
     if (op8 && isimm8(src_imm)) {
-        x64_op_rx_mem(op8, oplen, rx8, dest_mem);
+        emit_op_rx_mem(op8, oplen, rx8, dest_mem);
         emit(src_imm, 1);
     } else {
-        x64_op_rx_mem(op32, oplen, rx32, dest_mem);
+        emit_op_rx_mem(op32, oplen, rx32, dest_mem);
         emit(src_imm, 4);
     }
 }
 
 #define X64_OP_REG_REG(name, op, oplen) \
     void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
-        x64_op_reg_reg(op, oplen, dest_reg, src_reg); \
+        emit_op_reg_reg(op, oplen, dest_reg, src_reg); \
     }
 
 #define X64_OP_REG_MEM(name, op, oplen) \
     void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
-        x64_op_reg_mem(op, oplen, dest_reg, src_mem); \
+        emit_op_reg_mem(op, oplen, dest_reg, src_mem); \
     }
 
 #define X64_OP_REG_IMM(name, op8, op32, oplen, rx8, rx32) \
     void name##_reg_imm(uint64_t dest_reg, uint64_t src_imm) { \
-        x64_op_reg_imm(op8, op32, oplen, rx8, rx32, dest_reg, src_imm); \
+        emit_op_reg_imm(op8, op32, oplen, rx8, rx32, dest_reg, src_imm); \
     }
 
 #define X64_OP_MEM_REG(name, op, oplen) \
     void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
-        x64_op_mem_reg(op, oplen, dest_mem, src_reg); \
+        emit_op_mem_reg(op, oplen, dest_mem, src_reg); \
     }
 
 #define X64_OP_MEM_IMM(name, op8, op32, oplen, rx8, rx32) \
     void name##_mem_imm(Mem dest_mem, uint64_t src_imm) { \
-        x64_op_mem_imm(op8, op32, oplen, rx8, rx32, dest_mem, src_imm); \
+        emit_op_mem_imm(op8, op32, oplen, rx8, rx32, dest_mem, src_imm); \
     }
 
 #define X64_OP_REG(name, op, oplen, rx) \
     void name##_reg(uint64_t reg) { \
-        x64_op_reg(op, oplen, rx, reg); \
+        emit_op_reg(op, oplen, rx, reg); \
     }
 
 #define SSE_OP_REG_REG(name, op, oplen, prefix) \
     void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
-        sse_op_reg_reg(op, oplen, prefix, dest_reg, src_reg); \
+        emit_sse_op_reg_reg(op, oplen, prefix, dest_reg, src_reg); \
     }
 
 #define SSE_OP_REG_MEM(name, op, oplen, prefix) \
     void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
-        sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
+        emit_sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
     }
 
 // x64 instructions
@@ -248,7 +248,7 @@ INLINE void x64_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8,
     _(and,    0x23,   0x21,   0x83,    0x04,     0x81,     0x04) \
     _(mov,    0x8B,   0x89,   0x00,    0x00,     0xC7,     0x00)
 
-//    op    rm     len
+//    op    rm     rx
 #define X64_UNARY_OPS(_) \
     _(neg,  0xF7,  0x03) \
     _(idiv, 0xF7,  0x07)
@@ -283,48 +283,48 @@ X64_OP_REG_IMM(shl, 0xC1, 0, 1, 0x04, 0)
 
 INLINE void movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
     if (src_size == 1) {
-        x64_op_reg_reg(0xB60F, 2, dest_reg, src_reg);
+        emit_op_reg_reg(0xB60F, 2, dest_reg, src_reg);
     } else if (src_size == 2) {
-        x64_op_reg_reg(0xB70F, 2, dest_reg, src_reg);
+        emit_op_reg_reg(0xB70F, 2, dest_reg, src_reg);
     } else {
         assert(src_size == 4);
         uint8_t *start = here;
-        x64_op_reg_reg(0x8B, 1, dest_reg, src_reg);
+        emit_op_reg_reg(0x8B, 1, dest_reg, src_reg);
         *start &= ~8;
     }
 }
 INLINE void movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     if (src_size == 1) {
-        x64_op_rx_mem(0xB60F, 2, dest_reg, src_mem);
+        emit_op_rx_mem(0xB60F, 2, dest_reg, src_mem);
     } else if (src_size == 2) {
-        x64_op_rx_mem(0xB70F, 2, dest_reg, src_mem);
+        emit_op_rx_mem(0xB70F, 2, dest_reg, src_mem);
     } else {
         assert(src_size == 4);
         uint8_t *start = here;
-        x64_op_rx_mem(0x8B, 1, dest_reg, src_mem);
+        emit_op_rx_mem(0x8B, 1, dest_reg, src_mem);
         *start &= ~8;
     }
 }
 
 INLINE void movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
     if (src_size == 1) {
-        x64_op_reg_reg(0xBE0F, 2, dest_reg, src_reg);
+        emit_op_reg_reg(0xBE0F, 2, dest_reg, src_reg);
     } else if (src_size == 2) {
-        x64_op_reg_reg(0xBF0F, 2, dest_reg, src_reg);
+        emit_op_reg_reg(0xBF0F, 2, dest_reg, src_reg);
     } else {
         assert(src_size == 4);
-        x64_op_reg_reg(0x63, 1, dest_reg, src_reg);
+        emit_op_reg_reg(0x63, 1, dest_reg, src_reg);
     }
 }
 
 INLINE void movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     if (src_size == 1) {
-        x64_op_rx_mem(0xBE0F, 2, dest_reg, src_mem);
+        emit_op_rx_mem(0xBE0F, 2, dest_reg, src_mem);
     } else if (src_size == 2) {
-        x64_op_rx_mem(0xBF0F, 2, dest_reg, src_mem);
+        emit_op_rx_mem(0xBF0F, 2, dest_reg, src_mem);
     } else {
         assert(src_size == 4);
-        x64_op_rx_mem(0x63, 1, dest_reg, src_mem);
+        emit_op_rx_mem(0x63, 1, dest_reg, src_mem);
     }
 }
 
@@ -385,6 +385,7 @@ void example(void) {
     mov_reg_reg(RAX, R9);
     neg_reg(R9);
     idiv_reg(RAX);
+    imul_reg_reg(RDX, R9);
     mulss_reg_reg(XMM9, XMM10);
     mov_reg_mem(R9, base(R10));
     mov_reg_imm(RAX, 0x12345678);
