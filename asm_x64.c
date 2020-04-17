@@ -380,3 +380,25 @@ INLINE Mem base_index_scale(uint64_t base, uint64_t index, uint64_t scale) {
 INLINE Mem base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
     return (Mem){.base = base, .index = index, .scale = scale, .disp = disp};
 }
+
+void example(void) {
+    mov_reg_reg(RAX, R9);
+    neg_reg(R9);
+    idiv_reg(RAX);
+    mulss_reg_reg(XMM9, XMM10);
+    mov_reg_mem(R9, base(R10));
+    mov_reg_imm(RAX, 0x12345678);
+    mov_reg_imm(RAX, -128);
+    mov_mem_imm(base(RAX), 0x12345678);
+    mulss_reg_reg(XMM0, XMM9);
+    mulss_reg_reg(XMM0, XMM9);
+    mulss_reg_mem(XMM3, base_index_scale(RBX, RCX, X8));
+    shl_reg(RAX);
+    shl_reg_imm(R9, 0xA);
+    movzx_reg_reg(RAX, R9, 1);
+    movzx_reg_reg(RAX, R9, 2);
+    movzx_reg_reg(RAX, R9, 4);
+    movzx_reg_mem(RAX, base_index_scale(RBX, RCX, X8), 1);
+    movzx_reg_mem(RAX, base_index_scale(RBX, RCX, X8), 2);
+    movzx_reg_mem(RAX, base_index_scale(RBX, RCX, X8), 4);
+}
