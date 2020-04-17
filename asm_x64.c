@@ -23,6 +23,7 @@ enum Mode {
     INDIRECT, INDIRECT_DISP8, INDIRECT_DISP32, DIRECT
 };
 
+
 INLINE uint64_t rexw(uint64_t rx, uint64_t base, uint64_t index) {
     assert(rx < 16);
     assert(base < 16);
@@ -106,39 +107,6 @@ INLINE void emit_instr(int64_t op, int oplen, uint64_t rx, uint64_t base, uint64
     emit3(rexw(rx, base, index), 1, op, oplen, ext, extlen);
 }
 
-//    op      reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
-#define X64_BINARY_OPS(_) \
-    _(ADD,    0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
-    _(AND,    0x23,   0x21,   0x83,    0x04,     0x81,     0x04) \
-
-//    op    reg    len
-#define X64_UNARY_OPS(_) \
-    _(NEG,  0xF7,  0x03) \
-    _(IDIV, 0xF7,  0x07)
-
-//    op    prefix  reg_rm
-#define SSE_BINARY_OPS(_) \
-    _(MULSS, 0xF3,  0x580F) \
-    _(ADDSS, 0xF3,  0x590F)
-
-#define X64_BINARY_FIELDS(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    op##_reg_rm = reg_rm, op##_rm_reg = rm_reg, op##_len = 1, op##_immlen = 1, \
-    op##_rm_imm8 = rm_imm8, op##_rm_imm8x = rm_imm8x, op##_rm_imm32 = rm_imm32, op##_rm_imm32x = rm_imm32x,
-
-#define X64_UNARY_FIELDS(op, reg, rx) \
-    op##_reg = reg, op##_rx = rx, op##_len = 1,
-
-#define SSE_BINARY_FIELDS(op, prefix, reg_rm) \
-    op##_prefix = prefix, op##_sse = reg_rm,
-
-enum {
-    X64_BINARY_OPS(X64_BINARY_FIELDS)
-    X64_UNARY_OPS(X64_UNARY_FIELDS)
-    SSE_BINARY_OPS(SSE_BINARY_FIELDS)
-    IMUL_reg_rm = 0xAF0F, IMUL_len = 2, IMUL_immlen = 1,
-    IMUL_rm_imm8 = 0x6B, IMUL_rm_imm8x = 0, IMUL_rm_imm32 = 0x69, IMUL_rm_imm32x = 0,
-};
-
 typedef struct {
     uint64_t base;
     uint64_t index;
@@ -180,26 +148,36 @@ INLINE void x64_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
     emit_instr(op, oplen, rx, mem.base, mem.index, addr, addrlen);
 }
 
-INLINE void x64_reg_reg_func(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
+INLINE void x64_op_reg_reg(uint64_t op, int oplen, uint64_t dest_reg, uint64_t src_reg) {
     emit_instr(op, oplen, dest_reg, src_reg, 0, direct(dest_reg, src_reg), 1);
 }
 
-INLINE void x64_reg_func(uint64_t op, int oplen, uint64_t rx, uint64_t reg) {
-    x64_reg_reg_func(op, oplen, rx, reg);
-}
-
-INLINE void x64_reg_mem_func(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
+INLINE void x64_op_reg_mem(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
     x64_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
-INLINE void x64_mem_reg_func(uint64_t op, int oplen, Mem dest_mem, uint64_t src_reg) {
+INLINE void x64_op_mem_reg(uint64_t op, int oplen, Mem dest_mem, uint64_t src_reg) {
     x64_rx_mem(op, oplen, src_reg, dest_mem);
 }
 
-INLINE void x64_reg_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
+INLINE void x64_op_reg(uint64_t op, int oplen, uint64_t rx, uint64_t reg) {
+    x64_op_reg_reg(op, oplen, rx, reg);
+}
+
+INLINE void sse_op_reg_reg(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, uint64_t src_reg) {
+    emit(prefix, 1);
+    x64_op_reg_reg(op, oplen, dest_reg, src_reg);
+}
+
+INLINE void sse_op_reg_mem(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, Mem src_mem) {
+    emit(prefix, 1);
+    x64_rx_mem(op, oplen, dest_reg, src_mem);
+}
+
+INLINE void x64_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
     uint64_t op, rx;
     int immlen;
-    if (isimm8(src_imm)) {
+    if ((isimm8(src_imm) && op8) || !op32) {
         op = op8;
         rx = rx8;
         immlen = 1;
@@ -211,8 +189,8 @@ INLINE void x64_reg_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx
     emit_instr(op, oplen, rx, dest_reg, 0, direct(rx, dest_reg) | (src_imm << 8), 1 + immlen);
 }
 
-INLINE void x64_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
-    if (isimm8(src_imm)) {
+INLINE void x64_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
+    if (op8 && isimm8(src_imm)) {
         x64_rx_mem(op8, oplen, rx8, dest_mem);
         emit(src_imm, 1);
     } else {
@@ -221,15 +199,96 @@ INLINE void x64_mem_imm_func(uint64_t op8, uint64_t op32, int oplen, uint64_t rx
     }
 }
 
+#define X64_OP_REG_REG(name, op, oplen) \
+    void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
+        x64_op_reg_reg(op, oplen, dest_reg, src_reg); \
+    }
+
+#define X64_OP_REG_MEM(name, op, oplen) \
+    void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
+        x64_op_reg_mem(op, oplen, dest_reg, src_mem); \
+    }
+
+#define X64_OP_REG_IMM(name, op8, op32, oplen, rx8, rx32) \
+    void name##_reg_imm(uint64_t dest_reg, uint64_t src_imm) { \
+        x64_op_reg_imm(op8, op32, oplen, rx8, rx32, dest_reg, src_imm); \
+    }
+
+#define X64_OP_MEM_REG(name, op, oplen) \
+    void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
+        x64_op_mem_reg(op, oplen, dest_mem, src_reg); \
+    }
+
+#define X64_OP_MEM_IMM(name, op8, op32, oplen, rx8, rx32) \
+    void name##_mem_imm(Mem dest_mem, uint64_t src_imm) { \
+        x64_op_mem_imm(op8, op32, oplen, rx8, rx32, dest_mem, src_imm); \
+    }
+
+#define X64_OP_REG(name, op, oplen, rx) \
+    void name##_reg(uint64_t reg) { \
+        x64_op_reg(op, oplen, rx, reg); \
+    }
+
+#define SSE_OP_REG_REG(name, op, oplen, prefix) \
+    void name##_reg_reg(uint64_t dest_reg, uint64_t src_reg) { \
+        sse_op_reg_reg(op, oplen, prefix, dest_reg, src_reg); \
+    }
+
+#define SSE_OP_REG_MEM(name, op, oplen, prefix) \
+    void name##_reg_mem(uint64_t dest_reg, Mem src_mem) { \
+        sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
+    }
+
+// Instruction tables
+
+//    op      reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
+#define X64_BINARY_OPS(_) \
+    _(add,    0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
+    _(and,    0x23,   0x21,   0x83,    0x04,     0x81,     0x04) \
+    _(mov,    0x8B,   0x89,   0x00,    0x00,     0xC7,     0x00)
+
+//    op    rm     len
+#define X64_UNARY_OPS(_) \
+    _(neg,  0xF7,  0x03) \
+    _(idiv, 0xF7,  0x07)
+
+//    op    reg_rm   prefix
+#define SSE_BINARY_OPS(_) \
+    _(mulss, 0x580F, 0xF3) \
+    _(andss, 0x590F, 0xF3)
+
+#define X64_BINARY_FUNCS(op, rm_reg, reg_rm, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    X64_OP_REG_REG(op, reg_rm, 1) \
+    X64_OP_REG_MEM(op, reg_rm, 1) \
+    X64_OP_REG_IMM(op, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x) \
+    X64_OP_MEM_REG(op, rm_reg, 1) \
+    X64_OP_MEM_IMM(op, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x)
+
+#define X64_UNARY_FUNCS(op, rm, rx) \
+    X64_OP_REG(op, rm, 1, rx)
+
+#define SSE_BINARY_FUNCS(op, reg_rm, prefix) \
+    SSE_OP_REG_REG(op, reg_rm, 2, prefix) \
+    SSE_OP_REG_MEM(op, reg_rm, 2, prefix)
+
+X64_BINARY_OPS(X64_BINARY_FUNCS)
+X64_UNARY_OPS(X64_UNARY_FUNCS)
+SSE_BINARY_OPS(SSE_BINARY_FUNCS)
+
+X64_OP_REG_REG(imul, 0xAF0F, 2)
+X64_OP_REG_IMM(imul, 0x6B, 0x69, 1, 0, 0)
+X64_OP_REG(shl, 0xD3, 1, 0x04)
+X64_OP_REG_IMM(shl, 0xC1, 0, 1, 0x04, 0)
+
 INLINE void x64_movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
     if (src_size == 1) {
-        x64_reg_reg_func(0xB60F, 2, dest_reg, src_reg);
+        x64_op_reg_reg(0xB60F, 2, dest_reg, src_reg);
     } else if (src_size == 2) {
-        x64_reg_reg_func(0xB70F, 2, dest_reg, src_reg);
+        x64_op_reg_reg(0xB70F, 2, dest_reg, src_reg);
     } else {
         assert(src_size == 4);
         uint8_t *start = here;
-        x64_reg_reg_func(0x8B, 1, dest_reg, src_reg);
+        x64_op_reg_reg(0x8B, 1, dest_reg, src_reg);
         *start &= ~8;
     }
 }
@@ -248,12 +307,12 @@ INLINE void x64_movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
 
 INLINE void x64_movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
     if (src_size == 1) {
-        x64_reg_reg_func(0xBE0F, 2, dest_reg, src_reg);
+        x64_op_reg_reg(0xBE0F, 2, dest_reg, src_reg);
     } else if (src_size == 2) {
-        x64_reg_reg_func(0xBF0F, 2, dest_reg, src_reg);
+        x64_op_reg_reg(0xBF0F, 2, dest_reg, src_reg);
     } else {
         assert(src_size == 4);
-        x64_reg_reg_func(0x63, 1, dest_reg, src_reg);
+        x64_op_reg_reg(0x63, 1, dest_reg, src_reg);
     }
 }
 
@@ -266,16 +325,6 @@ INLINE void x64_movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
         assert(src_size == 4);
         x64_rx_mem(0x63, 1, dest_reg, src_mem);
     }
-}
-
-INLINE void sse_reg_reg_func(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, uint64_t src_reg) {
-    emit(prefix, 1);
-    x64_reg_reg_func(op, oplen, dest_reg, src_reg);
-}
-
-INLINE void sse_reg_mem_func(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, Mem src_mem) {
-    emit(prefix, 1);
-    x64_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
 INLINE uint32_t *x64_jump(const char *target) {
@@ -304,13 +353,3 @@ INLINE uint32_t *x64_jump_if(uint64_t cond, const char *target) {
 INLINE void x64_patch_jump(uint32_t *jump_field, const char *target) {
     *jump_field = (uint32_t)(target - ((char *)jump_field + 4));
 }
-
-#define x64_reg_reg(op, ...) x64_reg_reg_func(op##_reg_rm, op##_len, __VA_ARGS__)
-#define x64_reg_mem(op, ...) x64_reg_mem_func(op##_reg_rm, op##_len, __VA_ARGS__)
-#define x64_reg_imm(op, ...) x64_reg_imm_func(op##_rm_imm8, op##_rm_imm32, op##_immlen, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
-#define x64_mem_reg(op, ...) x64_mem_reg_func(op##_rm_reg, op##_len, __VA_ARGS__)
-#define x64_mem_imm(op, ...) x64_mem_imm_func(op##_rm_imm8, op##_rm_imm32, op##_immlen, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
-#define x64_reg(op, ...)     x64_reg_func(op##_reg, op##_len, op##_rx, __VA_ARGS__)
-
-#define sse_reg_reg(op, ...) sse_reg_reg_func(op##_sse, 2, op##_prefix, __VA_ARGS__)
-#define sse_reg_mem(op, ...) sse_reg_mem_func(op##_sse, 2, op##_prefix, __VA_ARGS__)
