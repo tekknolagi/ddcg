@@ -266,18 +266,18 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
 
 // x64 instructions
 
-#define X64_UNARY_OPS(_) \
+#define X64_UNARY_TABLE(_) \
     _(neg,    0xF7,    0x03) \
     _(idiv,   0xF7,    0x07) \
 //  _(name,   rm,      rx)
 
-#define X64_BINARY_OPS(_) \
+#define X64_BINARY_TABLE(_) \
     _(add,    0x03,    0x01,   0x83,    0x00,     0x81,     0x00) \
     _(and,    0x23,    0x21,   0x83,    0x04,     0x81,     0x04) \
     _(mov,    0x8B,    0x89,   0x00,    0x00,     0xC7,     0x00) \
 //  _(name,   reg_rm,  rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x)
 
-#define SSE_BINARY_OPS(_) \
+#define SSE_BINARY_TABLE(_) \
     _(mulss,  0x580F,  0xF3) \
     _(andss,  0x590F,  0xF3) \
     _(movss,  0x100F,  0xF3) \
@@ -294,9 +294,9 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
 #define SSE_BINARY_FUNCS(name, reg_rm, prefix) \
     SSE_OP_REG_RM(name, reg_rm, 2, prefix)
 
-X64_UNARY_OPS(X64_UNARY_FUNCS)
-X64_BINARY_OPS(X64_BINARY_FUNCS)
-SSE_BINARY_OPS(SSE_BINARY_FUNCS)
+X64_UNARY_TABLE(X64_UNARY_FUNCS)
+X64_BINARY_TABLE(X64_BINARY_FUNCS)
+SSE_BINARY_TABLE(SSE_BINARY_FUNCS)
 SSE_OP_MEM_REG(movss, 0x110F, 2, 0xF3)
 X64_OP_REG_REG(imul, 0xAF0F, 2)
 X64_OP_REG_IMM(imul, 0x6B, 0x69, 1, 0, 0)
