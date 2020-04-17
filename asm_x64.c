@@ -294,52 +294,36 @@ X64_OP_REG_REG(imul, 0xAF0F, 2)
 X64_OP_REG_IMM(imul, 0x6B, 0x69, 1, 0, 0)
 X64_OP_REG(shl, 0xD3, 1, 0x04)
 X64_OP_REG_IMM(shl, 0xC1, 0, 1, 0x04, 0)
+X64_OP_MEM_REG(mov8, 0x88, 1);
+X64_OP_MEM_REG(mov32, 0x89, 1);
+X64_OP_REG_REG(movsx8, 0xBE0F, 2);
+X64_OP_REG_MEM(movsx8, 0xBE0F, 2);
+X64_OP_REG_REG(movsx16, 0xBF0F, 2);
+X64_OP_REG_MEM(movsx16, 0xBF0F, 2);
+X64_OP_REG_REG(movsx32, 0xBF0F, 2);
+X64_OP_REG_MEM(movsx32, 0xBF0F, 2);
+X64_OP_REG_REG(movzx8, 0xB60F, 2);
+X64_OP_REG_MEM(movzx8, 0xB60F, 2);
+X64_OP_REG_REG(movzx16, 0xB70F, 2);
+X64_OP_REG_MEM(movzx16, 0xB70F, 2);
 
-INLINE void movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
-    if (src_size == 1) {
-        emit_op_reg_reg(0xB60F, 2, dest_reg, src_reg);
-    } else if (src_size == 2) {
-        emit_op_reg_reg(0xB70F, 2, dest_reg, src_reg);
-    } else {
-        assert(src_size == 4);
-        uint8_t *start = here;
-        emit_op_reg_reg(0x8B, 1, dest_reg, src_reg);
-        *start &= ~8;
-    }
-}
-INLINE void movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
-    if (src_size == 1) {
-        emit_op_rx_mem(0xB60F, 2, dest_reg, src_mem);
-    } else if (src_size == 2) {
-        emit_op_rx_mem(0xB70F, 2, dest_reg, src_mem);
-    } else {
-        assert(src_size == 4);
-        uint8_t *start = here;
-        emit_op_rx_mem(0x8B, 1, dest_reg, src_mem);
-        *start &= ~8;
-    }
+INLINE void mov16_mem_reg(Mem dest_mem, uint64_t src_reg) {
+    emit(0x66, 1);
+    uint8_t *start = here;
+    emit_op_mem_reg(0x89, 1, dest_mem, src_reg);
+    *start &= ~8;
 }
 
-INLINE void movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
-    if (src_size == 1) {
-        emit_op_reg_reg(0xBE0F, 2, dest_reg, src_reg);
-    } else if (src_size == 2) {
-        emit_op_reg_reg(0xBF0F, 2, dest_reg, src_reg);
-    } else {
-        assert(src_size == 4);
-        emit_op_reg_reg(0x63, 1, dest_reg, src_reg);
-    }
+INLINE void movzx32_reg_reg(uint64_t dest_reg, uint64_t src_reg) {
+    uint8_t *start = here;
+    emit_op_reg_reg(0x8B, 1, dest_reg, src_reg);
+    *start &= ~8;
 }
 
-INLINE void movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
-    if (src_size == 1) {
-        emit_op_rx_mem(0xBE0F, 2, dest_reg, src_mem);
-    } else if (src_size == 2) {
-        emit_op_rx_mem(0xBF0F, 2, dest_reg, src_mem);
-    } else {
-        assert(src_size == 4);
-        emit_op_rx_mem(0x63, 1, dest_reg, src_mem);
-    }
+INLINE void movzx32_reg_mem(uint64_t dest_reg, Mem src_mem) {
+    uint8_t *start = here;
+    emit_op_rx_mem(0x8B, 1, dest_reg, src_mem);
+    *start &= ~8;
 }
 
 INLINE uint32_t *jmp(const char *target) {
@@ -410,10 +394,10 @@ void example(void) {
     mulss_reg_mem(XMM3, base_index_scale(RBX, RCX, X8));
     shl_reg(RAX);
     shl_reg_imm(R9, 0xA);
-    movzx_reg_reg(RAX, R9, 1);
-    movzx_reg_reg(RAX, R9, 2);
-    movzx_reg_reg(RAX, R9, 4);
-    movzx_reg_mem(RAX, base_index_scale(RBX, RCX, X8), 1);
-    movzx_reg_mem(RAX, base_index_scale(RBX, RCX, X8), 2);
-    movzx_reg_mem(RAX, base_index_scale(RBX, RCX, X8), 4);
+    movzx8_reg_reg(RAX, R9);
+    movzx16_reg_reg(RAX, R9);
+    movzx32_reg_reg(RAX, R9);
+    movzx8_reg_mem(RAX, base_index_scale(RBX, RCX, X8));
+    movzx16_reg_mem(RAX, base_index_scale(RBX, RCX, X8));
+    movzx32_reg_mem(RAX, base_index_scale(RBX, RCX, X8));
 }
