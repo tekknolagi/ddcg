@@ -175,10 +175,16 @@ INLINE void emit_sse_op_reg_mem(uint64_t op, int oplen, uint64_t prefix, uint64_
     emit_op_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
+INLINE void emit_sse_op_mem_reg(uint64_t op, int oplen, uint64_t prefix, Mem dest_mem, uint64_t src_reg) {
+    emit(prefix, 1);
+    emit_op_rx_mem(op, oplen, src_reg, dest_mem);
+}
+
 INLINE void emit_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
     uint64_t op, rx;
     int immlen;
     if ((isimm8(src_imm) && op8) || !op32) {
+        assert(op8);
         op = op8;
         rx = rx8;
         immlen = 1;
@@ -191,7 +197,8 @@ INLINE void emit_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
 }
 
 INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
-    if (op8 && isimm8(src_imm)) {
+    if ((isimm8(src_imm) && op8) || !op32) {
+        assert(op8);
         emit_op_rx_mem(op8, oplen, rx8, dest_mem);
         emit(src_imm, 1);
     } else {
@@ -240,42 +247,49 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
         emit_sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
     }
 
+#define SSE_OP_MEM_REG(name, op, oplen, prefix) \
+    void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
+        emit_sse_op_mem_reg(op, oplen, prefix, dest_mem, src_reg); \
+    }
+
 // x64 instructions
 
-//    op      reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
 #define X64_BINARY_OPS(_) \
-    _(add,    0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
-    _(and,    0x23,   0x21,   0x83,    0x04,     0x81,     0x04) \
-    _(mov,    0x8B,   0x89,   0x00,    0x00,     0xC7,     0x00)
+    _(add,    0x03,    0x01,   0x83,    0x00,     0x81,     0x00) \
+    _(and,    0x23,    0x21,   0x83,    0x04,     0x81,     0x04) \
+    _(mov,    0x8B,    0x89,   0x00,    0x00,     0xC7,     0x00) \
+//  _(name,   reg_rm,  rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x)
 
-//    op    rm     rx
 #define X64_UNARY_OPS(_) \
-    _(neg,  0xF7,  0x03) \
-    _(idiv, 0xF7,  0x07)
+    _(neg,    0xF7,    0x03) \
+    _(idiv,   0xF7,    0x07) \
+//  _(name,   rm,      rx)
 
-//    op    reg_rm   prefix
 #define SSE_BINARY_OPS(_) \
-    _(mulss, 0x580F, 0xF3) \
-    _(andss, 0x590F, 0xF3)
+    _(mulss,  0x580F,  0xF3) \
+    _(andss,  0x590F,  0xF3) \
+    _(movss,  0x100F,  0xF3) \
+//  _(name,   reg_rm,  prefix)
 
-#define X64_BINARY_FUNCS(op, rm_reg, reg_rm, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    X64_OP_REG_REG(op, reg_rm, 1) \
-    X64_OP_REG_MEM(op, reg_rm, 1) \
-    X64_OP_REG_IMM(op, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x) \
-    X64_OP_MEM_REG(op, rm_reg, 1) \
-    X64_OP_MEM_IMM(op, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x)
+#define X64_BINARY_FUNCS(name, rm_reg, reg_rm, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    X64_OP_REG_REG(name, reg_rm, 1) \
+    X64_OP_REG_MEM(name, reg_rm, 1) \
+    X64_OP_REG_IMM(name, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x) \
+    X64_OP_MEM_REG(name, rm_reg, 1) \
+    X64_OP_MEM_IMM(name, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x)
 
-#define X64_UNARY_FUNCS(op, rm, rx) \
-    X64_OP_REG(op, rm, 1, rx)
+#define X64_UNARY_FUNCS(name, rm, rx) \
+    X64_OP_REG(name, rm, 1, rx)
 
-#define SSE_BINARY_FUNCS(op, reg_rm, prefix) \
-    SSE_OP_REG_REG(op, reg_rm, 2, prefix) \
-    SSE_OP_REG_MEM(op, reg_rm, 2, prefix)
+#define SSE_BINARY_FUNCS(name, reg_rm, prefix) \
+    SSE_OP_REG_REG(name, reg_rm, 2, prefix) \
+    SSE_OP_REG_MEM(name, reg_rm, 2, prefix)
 
 X64_BINARY_OPS(X64_BINARY_FUNCS)
 X64_UNARY_OPS(X64_UNARY_FUNCS)
 SSE_BINARY_OPS(SSE_BINARY_FUNCS)
 
+SSE_OP_MEM_REG(movss, 0x110F, 2, 0xF3)
 X64_OP_REG_REG(imul, 0xAF0F, 2)
 X64_OP_REG_IMM(imul, 0x6B, 0x69, 1, 0, 0)
 X64_OP_REG(shl, 0xD3, 1, 0x04)
@@ -351,8 +365,8 @@ INLINE uint32_t *jmp_if(uint64_t cond, const char *target) {
     }
 }
 
-INLINE void patch_jmp(uint32_t *jmp_rel, const char *target) {
-    *jmp_rel = (uint32_t)(target - ((char *)jmp_rel + 4));
+INLINE void patch_jmp(uint32_t *rel_ptr, const char *target) {
+    *rel_ptr = (uint32_t)(target - ((char *)rel_ptr + 4));
 }
 
 // Helpers
