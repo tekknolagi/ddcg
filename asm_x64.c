@@ -351,6 +351,6 @@ INLINE uint32_t *jmp_if(uint64_t cond, const char *target) {
     }
 }
 
-INLINE void patch_jmp(uint32_t *jump_field, const char *target) {
-    *jump_field = (uint32_t)(target - ((char *)jump_field + 4));
+INLINE void patch_jmp(uint32_t *jmp_rel, const char *target) {
+    *jmp_rel = (uint32_t)(target - ((char *)jmp_rel + 4));
 }
