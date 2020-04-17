@@ -217,6 +217,10 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
         emit_op_reg_mem(op, oplen, dest_reg, src_mem); \
     }
 
+#define X64_OP_REG_RM(name, op, oplen) \
+    X64_OP_REG_REG(name, op, oplen) \
+    X64_OP_REG_MEM(name, op, oplen)
+
 #define X64_OP_REG_IMM(name, op8, op32, oplen, rx8, rx32) \
     void name##_reg_imm(uint64_t dest_reg, uint64_t src_imm) { \
         emit_op_reg_imm(op8, op32, oplen, rx8, rx32, dest_reg, src_imm); \
@@ -247,6 +251,10 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
         emit_sse_op_reg_mem(op, oplen, prefix, dest_reg, src_mem); \
     }
 
+#define SSE_OP_REG_RM(name, op, oplen, prefix) \
+    SSE_OP_REG_REG(name, op, oplen, prefix) \
+    SSE_OP_REG_MEM(name, op, oplen, prefix)
+
 #define SSE_OP_MEM_REG(name, op, oplen, prefix) \
     void name##_mem_reg(Mem dest_mem, uint64_t src_reg) { \
         emit_sse_op_mem_reg(op, oplen, prefix, dest_mem, src_reg); \
@@ -272,8 +280,7 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
 //  _(name,   reg_rm,  prefix)
 
 #define X64_BINARY_FUNCS(name, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    X64_OP_REG_REG(name, reg_rm, 1) \
-    X64_OP_REG_MEM(name, reg_rm, 1) \
+    X64_OP_REG_RM(name, reg_rm, 1) \
     X64_OP_REG_IMM(name, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x) \
     X64_OP_MEM_REG(name, rm_reg, 1) \
     X64_OP_MEM_IMM(name, rm_imm8, rm_imm32, 1, rm_imm8x, rm_imm32x)
@@ -282,8 +289,7 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
     X64_OP_REG(name, rm, 1, rx)
 
 #define SSE_BINARY_FUNCS(name, reg_rm, prefix) \
-    SSE_OP_REG_REG(name, reg_rm, 2, prefix) \
-    SSE_OP_REG_MEM(name, reg_rm, 2, prefix)
+    SSE_OP_REG_RM(name, reg_rm, 2, prefix)
 
 X64_BINARY_OPS(X64_BINARY_FUNCS)
 X64_UNARY_OPS(X64_UNARY_FUNCS)
@@ -296,16 +302,11 @@ X64_OP_REG(shl, 0xD3, 1, 0x04)
 X64_OP_REG_IMM(shl, 0xC1, 0, 1, 0x04, 0)
 X64_OP_MEM_REG(mov8, 0x88, 1);
 X64_OP_MEM_REG(mov32, 0x89, 1);
-X64_OP_REG_REG(movsx8, 0xBE0F, 2);
-X64_OP_REG_MEM(movsx8, 0xBE0F, 2);
-X64_OP_REG_REG(movsx16, 0xBF0F, 2);
-X64_OP_REG_MEM(movsx16, 0xBF0F, 2);
-X64_OP_REG_REG(movsx32, 0xBF0F, 2);
-X64_OP_REG_MEM(movsx32, 0xBF0F, 2);
-X64_OP_REG_REG(movzx8, 0xB60F, 2);
-X64_OP_REG_MEM(movzx8, 0xB60F, 2);
-X64_OP_REG_REG(movzx16, 0xB70F, 2);
-X64_OP_REG_MEM(movzx16, 0xB70F, 2);
+X64_OP_REG_RM(movsx8, 0xBE0F, 2);
+X64_OP_REG_RM(movsx16, 0xBF0F, 2);
+X64_OP_REG_RM(movsx32, 0xBF0F, 2);
+X64_OP_REG_RM(movzx8, 0xB60F, 2);
+X64_OP_REG_RM(movzx16, 0xB70F, 2);
 
 INLINE void mov16_mem_reg(Mem dest_mem, uint64_t src_reg) {
     emit(0x66, 1);
@@ -381,6 +382,10 @@ INLINE Mem base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, 
 
 void example(void) {
     mov_reg_reg(RAX, R9);
+    mov8_mem_reg(base(RAX), R9);
+    mov16_mem_reg(base(RAX), R9);
+    mov32_mem_reg(base(RAX), R9);
+    movss_mem_reg(base(RAX), XMM10);
     neg_reg(R9);
     idiv_reg(RAX);
     imul_reg_reg(RDX, R9);
