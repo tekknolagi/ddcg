@@ -115,7 +115,7 @@ typedef struct {
     uint64_t disp;
 } Mem;
 
-INLINE void x64_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
+INLINE void x64_op_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
     uint64_t addr;
     int addrlen;
     if (mem.index == -1) {
@@ -154,11 +154,11 @@ INLINE void x64_op_reg_reg(uint64_t op, int oplen, uint64_t dest_reg, uint64_t s
 }
 
 INLINE void x64_op_reg_mem(uint64_t op, int oplen, uint64_t dest_reg, Mem src_mem) {
-    x64_rx_mem(op, oplen, dest_reg, src_mem);
+    x64_op_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
 INLINE void x64_op_mem_reg(uint64_t op, int oplen, Mem dest_mem, uint64_t src_reg) {
-    x64_rx_mem(op, oplen, src_reg, dest_mem);
+    x64_op_rx_mem(op, oplen, src_reg, dest_mem);
 }
 
 INLINE void x64_op_reg(uint64_t op, int oplen, uint64_t rx, uint64_t reg) {
@@ -172,7 +172,7 @@ INLINE void sse_op_reg_reg(uint64_t op, int oplen, uint64_t prefix, uint64_t des
 
 INLINE void sse_op_reg_mem(uint64_t op, int oplen, uint64_t prefix, uint64_t dest_reg, Mem src_mem) {
     emit(prefix, 1);
-    x64_rx_mem(op, oplen, dest_reg, src_mem);
+    x64_op_rx_mem(op, oplen, dest_reg, src_mem);
 }
 
 INLINE void x64_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, uint64_t dest_reg, uint64_t src_imm) {
@@ -192,10 +192,10 @@ INLINE void x64_op_reg_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8,
 
 INLINE void x64_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8, uint64_t rx32, Mem dest_mem, uint64_t src_imm) {
     if (op8 && isimm8(src_imm)) {
-        x64_rx_mem(op8, oplen, rx8, dest_mem);
+        x64_op_rx_mem(op8, oplen, rx8, dest_mem);
         emit(src_imm, 1);
     } else {
-        x64_rx_mem(op32, oplen, rx32, dest_mem);
+        x64_op_rx_mem(op32, oplen, rx32, dest_mem);
         emit(src_imm, 4);
     }
 }
@@ -295,13 +295,13 @@ INLINE void movzx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
 }
 INLINE void movzx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     if (src_size == 1) {
-        x64_rx_mem(0xB60F, 2, dest_reg, src_mem);
+        x64_op_rx_mem(0xB60F, 2, dest_reg, src_mem);
     } else if (src_size == 2) {
-        x64_rx_mem(0xB70F, 2, dest_reg, src_mem);
+        x64_op_rx_mem(0xB70F, 2, dest_reg, src_mem);
     } else {
         assert(src_size == 4);
         uint8_t *start = here;
-        x64_rx_mem(0x8B, 1, dest_reg, src_mem);
+        x64_op_rx_mem(0x8B, 1, dest_reg, src_mem);
         *start &= ~8;
     }
 }
@@ -319,12 +319,12 @@ INLINE void movsx_reg_reg(uint64_t dest_reg, uint64_t src_reg, int src_size) {
 
 INLINE void movsx_reg_mem(uint64_t dest_reg, Mem src_mem, int src_size) {
     if (src_size == 1) {
-        x64_rx_mem(0xBE0F, 2, dest_reg, src_mem);
+        x64_op_rx_mem(0xBE0F, 2, dest_reg, src_mem);
     } else if (src_size == 2) {
-        x64_rx_mem(0xBF0F, 2, dest_reg, src_mem);
+        x64_op_rx_mem(0xBF0F, 2, dest_reg, src_mem);
     } else {
         assert(src_size == 4);
-        x64_rx_mem(0x63, 1, dest_reg, src_mem);
+        x64_op_rx_mem(0x63, 1, dest_reg, src_mem);
     }
 }
 
