@@ -4,7 +4,7 @@ enum Reg {
 };
 
 enum XmmReg {
-    XMM0, XMM1, XMM2,  XMM3,  XMM4,  XMM5,  XMM6, XMM7,
+    XMM0, XMM1, XMM2,  XMM3,  XMM4,  XMM5,  XMM6,  XMM7,
     XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14, XMM15,
 };
 
@@ -106,45 +106,37 @@ INLINE void emit_instr(int64_t op, int oplen, uint64_t rx, uint64_t base, uint64
     emit3(rexw(rx, base, index), 1, op, oplen, ext, extlen);
 }
 
-// int32, uint32, int16, uint8, int8, uint8
-
 //    op      reg_rm  rm_reg  rm_imm8  rm_imm8x  rm_imm32  rm_imm32x
-#define BINARY_OPS(_) \
+#define X64_BINARY_OPS(_) \
     _(ADD,    0x03,   0x01,   0x83,    0x00,     0x81,     0x00) \
     _(AND,    0x23,   0x21,   0x83,    0x04,     0x81,     0x04) \
 
-#define BINARY_FIELDS(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
-    op##_reg_rm = reg_rm, op##_rm_reg = rm_reg, op##_len = 1, \
-    op##_rm_imm8 = rm_imm8, op##_rm_imm8x = rm_imm8x, op##_rm_imm32 = rm_imm32, op##_rm_imm32x = rm_imm32x, op##_immlen = 1, \
+//    op    reg    len
+#define X64_UNARY_OPS(_) \
+    _(NEG,  0xF7,  0x03) \
+    _(IDIV, 0xF7,  0x07)
 
-enum {
-    BINARY_OPS(BINARY_FIELDS)
-};
-
-#define UNARY_OPS(_) \
-    _(NEG,  0xF7, 0x03) \
-    _(IDIV, 0xF7, 0x07)
-
-#define UNARY_FIELDS(op, unary, rx) \
-    op##_reg = unary, op##_rx = rx, op##_len = 1,
-
-enum {
-    UNARY_OPS(UNARY_FIELDS)
-};
-
-enum {
-    IMUL_reg_rm = 0xAF0F, IMUL_len = 2, IMUL_immlen = 1, IMUL_rm_imm8 = 0x6B, IMUL_rm_imm8x = 0, IMUL_rm_imm32 = 0x69, IMUL_rm_imm32x = 0,
-};
-
+//    op    prefix  reg_rm
 #define SSE_BINARY_OPS(_) \
-    _(MULSS, 0xF3, 0x580F) \
-    _(ADDSS, 0xF3, 0x590F)
+    _(MULSS, 0xF3,  0x580F) \
+    _(ADDSS, 0xF3,  0x590F)
+
+#define X64_BINARY_FIELDS(op, reg_rm, rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x) \
+    op##_reg_rm = reg_rm, op##_rm_reg = rm_reg, op##_len = 1, op##_immlen = 1, \
+    op##_rm_imm8 = rm_imm8, op##_rm_imm8x = rm_imm8x, op##_rm_imm32 = rm_imm32, op##_rm_imm32x = rm_imm32x,
+
+#define X64_UNARY_FIELDS(op, reg, rx) \
+    op##_reg = reg, op##_rx = rx, op##_len = 1,
 
 #define SSE_BINARY_FIELDS(op, prefix, reg_rm) \
     op##_prefix = prefix, op##_sse = reg_rm,
 
 enum {
+    X64_BINARY_OPS(X64_BINARY_FIELDS)
+    X64_UNARY_OPS(X64_UNARY_FIELDS)
     SSE_BINARY_OPS(SSE_BINARY_FIELDS)
+    IMUL_reg_rm = 0xAF0F, IMUL_len = 2, IMUL_immlen = 1,
+    IMUL_rm_imm8 = 0x6B, IMUL_rm_imm8x = 0, IMUL_rm_imm32 = 0x69, IMUL_rm_imm32x = 0,
 };
 
 typedef struct {
@@ -319,5 +311,6 @@ INLINE void x64_patch_jump(uint32_t *jump_field, const char *target) {
 #define x64_mem_reg(op, ...) x64_mem_reg_func(op##_rm_reg, op##_len, __VA_ARGS__)
 #define x64_mem_imm(op, ...) x64_mem_imm_func(op##_rm_imm8, op##_rm_imm32, op##_immlen, op##_rm_imm8x, op##_rm_imm32x, __VA_ARGS__)
 #define x64_reg(op, ...)     x64_reg_func(op##_reg, op##_len, op##_rx, __VA_ARGS__)
+
 #define sse_reg_reg(op, ...) sse_reg_reg_func(op##_sse, 2, op##_prefix, __VA_ARGS__)
 #define sse_reg_mem(op, ...) sse_reg_mem_func(op##_sse, 2, op##_prefix, __VA_ARGS__)
