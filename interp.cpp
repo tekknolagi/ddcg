@@ -190,7 +190,12 @@ struct Imm {
 void plug(Destination dest, ControlDestination cdest, Cond cond) {
   switch (dest) {
     case Destination::kStack: {
-      assert(false);
+      uint32_t* materialize_true = jmp_if(cond, 0);
+      push_imm(0);
+      cdest.alt->ref(jmp(0));
+      patch_rel(materialize_true, here);
+      push_imm(1);
+      cdest.cons->ref(jmp(0));
       break;
     }
     case Destination::kAccumulator: {
@@ -222,13 +227,15 @@ void plug(Destination dest, ControlDestination cdest, Imm imm) {
       break;
     }
     case Destination::kNowhere: {
-      mov_reg_imm(RBX, imm.value);
-      and_reg_reg(RBX, RBX);
-      cdest.alt->ref(jmp_if(E, 0));
-      cdest.cons->ref(jmp(0));
+      // Nothing to do; not supposed to be materialized anywhere
       break;
     }
   }
+  // TODO(max): Simplify by const folding
+  mov_reg_imm(RBX, imm.value);
+  and_reg_reg(RBX, RBX);
+  cdest.alt->ref(jmp_if(E, 0));
+  cdest.cons->ref(jmp(0));
 }
 
 void plug(Destination dest, ControlDestination cdest, Reg reg) {
@@ -238,36 +245,39 @@ void plug(Destination dest, ControlDestination cdest, Reg reg) {
       push_reg(reg);
       break;
     }
-    case Destination::kAccumulator: {
-      // Nothing to do
-      break;
-    }
+    case Destination::kAccumulator:
     case Destination::kNowhere: {
-      cmp_reg_reg(reg, 0);
-      cdest.cons->ref(jmp_if(E, 0));
-      cdest.alt->ref(jmp(0));
+      // Nothing to do; reg already in RAX or it's not supposed to materialize
+      // anywhere
       break;
     }
   }
+  cmp_reg_imm(reg, 0);
+  cdest.alt->ref(jmp_if(E, 0));
+  cdest.cons->ref(jmp(0));
 }
 
-void plug(Destination dest, Mem mem) {
+void plug(Destination dest, ControlDestination cdest, Mem mem) {
   Reg tmp = RBX;
   switch (dest) {
     case Destination::kStack: {
       mov_reg_mem(tmp, mem);
       push_reg(tmp);
+      cmp_reg_imm(tmp, 0);
       break;
     }
     case Destination::kAccumulator: {
       mov_reg_mem(RAX, mem);
+      cmp_reg_imm(RAX, 0);
       break;
     }
     case Destination::kNowhere: {
-      // Nothing to do
+      cmp_mem_imm(mem, 0);
       break;
     }
   }
+  cdest.alt->ref(jmp_if(E, 0));
+  cdest.cons->ref(jmp(0));
 }
 
 void compile_expr(const Expr* expr, Destination dest,
@@ -289,7 +299,7 @@ void compile_expr(const Expr* expr, Destination dest,
     }
     case ExprType::kVarRef: {
       int offset = reinterpret_cast<const VarRef*>(expr)->offset;
-      plug(dest, var_at(offset));
+      plug(dest, cdest, var_at(offset));
       break;
     }
     case ExprType::kVarAssign: {
