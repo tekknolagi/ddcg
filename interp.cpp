@@ -140,8 +140,7 @@ Mem var_at(int offset) {
   return base_disp(RDI, offset * sizeof(State{}.vars[0]));
 }
 
-void compile_expr(State* state, const Expr* expr) {
-  (void)state;
+void compile_expr(const Expr* expr) {
   switch (expr->type) {
     case ExprType::kIntLit: {
       int value = reinterpret_cast<const IntLit*>(expr)->value;
@@ -150,8 +149,8 @@ void compile_expr(State* state, const Expr* expr) {
     }
     case ExprType::kAddExpr: {
       auto add = reinterpret_cast<const AddExpr*>(expr);
-      compile_expr(state, add->left);
-      compile_expr(state, add->right);
+      compile_expr(add->left);
+      compile_expr(add->right);
       pop_reg(RBX);
       pop_reg(RAX);
       add_reg_reg(RAX, RBX);
@@ -166,15 +165,15 @@ void compile_expr(State* state, const Expr* expr) {
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
-      compile_expr(state, assign->right);
+      compile_expr(assign->right);
       mov_reg_mem(RAX, base_index_scale(RSP, RSP, X4));
       mov_mem_reg(var_at(assign->left->offset), RAX);
       break;
     }
     case ExprType::kLessThan: {
       auto less = reinterpret_cast<const LessThan*>(expr);
-      compile_expr(state, less->left);
-      compile_expr(state, less->right);
+      compile_expr(less->left);
+      compile_expr(less->right);
       pop_reg(RBX);
       pop_reg(RAX);
       sub_reg_reg(RAX, RBX);
@@ -207,7 +206,7 @@ int jit_expr(State* state, const Expr* expr) {
   mov_reg_reg(RBP, RSP);
   sub_reg_imm(RSP, kNumVars);
   // emit expr
-  compile_expr(state, expr);
+  compile_expr(expr);
   pop_reg(RAX);
   // emit epilogue
   mov_reg_reg(RSP, RBP);
