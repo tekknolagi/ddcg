@@ -92,6 +92,12 @@ int interpret(State* state, const Expr* expr) {
     case ExprType::kVarRef: {
       return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
     }
+    case ExprType::kVarAssign: {
+      auto assign = reinterpret_cast<const VarAssign*>(expr);
+      int result = interpret(state, assign->right);
+      state->vars[assign->left->offset] = result;
+      return result;
+    }
     default: {
       std::fprintf(stderr, "unsupported expr type\n");
       std::abort();
@@ -121,8 +127,13 @@ struct ExprTest {
   int expected;
 };
 
+struct StmtTest {
+  Stmt* stmt;
+  State expected;
+};
+
 void test_interp(ExprTest tests[]) {
-  fprintf(stderr, "Testing interpreter ");
+  fprintf(stderr, "Testing interpreter (expr) ");
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].expr != nullptr; i++) {
     int result = interpret(&tests[i].state, tests[i].expr);
@@ -143,12 +154,48 @@ void test_interp(ExprTest tests[]) {
   }
 }
 
+void test_interp(StmtTest tests[]) {
+  fprintf(stderr, "Testing interpreter (stmt) ");
+  std::vector<size_t> failed;
+  for (size_t i = 0; tests[i].stmt != nullptr; i++) {
+    State state;
+    interpret(&state, tests[i].stmt);
+    if (state == tests[i].expected) {
+      fprintf(stderr, ".");
+    } else {
+      failed.push_back(i);
+      fprintf(stderr, "E");
+    }
+  }
+  fprintf(stderr, "\n");
+  if (failed.size()) {
+    fprintf(stderr, "Failed tests:");
+    for (size_t test : failed) {
+      fprintf(stderr, " %zu", test);
+    }
+    fprintf(stderr, "\n");
+  }
+}
+
 int main() {
-  ExprTest tests[] = {
+  ExprTest expr_tests[] = {
       {State{}, new IntLit(123), 123},
       {State{}, new AddExpr(new IntLit(123), new IntLit(456)), 579},
       {State{}.set(3, 123), new VarRef(3), 123},
+      {State{}, new VarAssign(new VarRef(3), new IntLit(123)), 123},
       {State{}, nullptr, 0},
   };
-  test_interp(tests);
+  test_interp(expr_tests);
+  StmtTest stmt_tests[] = {
+      {new ExprStmt(new IntLit(123)), State{}},
+      {new ExprStmt(new VarAssign(new VarRef(3), new IntLit(123))),
+       State{}.set(3, 123)},
+      {new BlockStmt({
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+           new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
+       }),
+       State{}.set(0, 123).set(1, 456)},
+      {nullptr, State{}},
+  };
+  test_interp(stmt_tests);
 }
