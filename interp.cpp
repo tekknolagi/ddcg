@@ -60,6 +60,11 @@ struct BlockStmt : public Stmt {
 };
 
 struct State {
+  State set(int offset, int value) const {
+    State result = *this;
+    result.vars[offset] = value;
+    return result;
+  }
   int vars[26] = {};
 };
 
@@ -73,6 +78,9 @@ int interpret(State* state, const Expr* expr) {
       int left = interpret(state, add->left);
       int right = interpret(state, add->right);
       return left + right;
+    }
+    case ExprType::kVarRef: {
+      return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
     }
     default: {
       std::fprintf(stderr, "unsupported expr type\n");
@@ -98,6 +106,7 @@ void interpret(State* state, const Stmt* stmt) {
 }
 
 struct ExprTest {
+  State state;
   Expr* expr;
   int expected;
 };
@@ -106,8 +115,7 @@ void test_interp(ExprTest tests[]) {
   fprintf(stderr, "Testing interpreter ");
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].expr != nullptr; i++) {
-    State state;
-    int result = interpret(&state, tests[i].expr);
+    int result = interpret(&tests[i].state, tests[i].expr);
     if (result == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
@@ -127,9 +135,10 @@ void test_interp(ExprTest tests[]) {
 
 int main() {
   ExprTest tests[] = {
-      {new IntLit(123), 123},
-      {new AddExpr(new IntLit(123), new IntLit(456)), 579},
-      {nullptr, 0},
+      {State{}, new IntLit(123), 123},
+      {State{}, new AddExpr(new IntLit(123), new IntLit(456)), 579},
+      {State{}.set(3, 123), new VarRef(3), 123},
+      {State{}, nullptr, 0},
   };
   test_interp(tests);
 }
