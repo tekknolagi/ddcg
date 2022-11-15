@@ -95,15 +95,15 @@ struct State {
   int vars[kNumVars] = {};
 };
 
-int interpret(State* state, const Expr* expr) {
+int interpret_expr(State* state, const Expr* expr) {
   switch (expr->type) {
     case ExprType::kIntLit: {
       return reinterpret_cast<const IntLit*>(expr)->value;
     }
     case ExprType::kAddExpr: {
       auto add = reinterpret_cast<const AddExpr*>(expr);
-      int left = interpret(state, add->left);
-      int right = interpret(state, add->right);
+      int left = interpret_expr(state, add->left);
+      int right = interpret_expr(state, add->right);
       return left + right;
     }
     case ExprType::kVarRef: {
@@ -111,14 +111,14 @@ int interpret(State* state, const Expr* expr) {
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
-      int result = interpret(state, assign->right);
+      int result = interpret_expr(state, assign->right);
       state->vars[assign->left->offset] = result;
       return result;
     }
     case ExprType::kLessThan: {
       auto less = reinterpret_cast<const LessThan*>(expr);
-      int left = interpret(state, less->left);
-      int right = interpret(state, less->right);
+      int left = interpret_expr(state, less->left);
+      int right = interpret_expr(state, less->right);
       return left < right;
     }
     default: {
@@ -128,26 +128,26 @@ int interpret(State* state, const Expr* expr) {
   }
 }
 
-void interpret(State* state, const Stmt* stmt) {
+void interpret_stmt(State* state, const Stmt* stmt) {
   switch (stmt->type) {
     case StmtType::kExpr: {
-      interpret(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
+      interpret_expr(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
       break;
     }
     case StmtType::kBlock: {
       auto block = reinterpret_cast<const BlockStmt*>(stmt);
       for (size_t i = 0; i < block->body.size(); i++) {
-        interpret(state, block->body[i]);
+        interpret_stmt(state, block->body[i]);
       }
       break;
     }
     case StmtType::kIf: {
       auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      int result = interpret(state, if_->cond);
+      int result = interpret_expr(state, if_->cond);
       if (result) {
-        interpret(state, if_->cons);
+        interpret_stmt(state, if_->cons);
       } else {
-        interpret(state, if_->alt);
+        interpret_stmt(state, if_->alt);
       }
       break;
     }
@@ -169,7 +169,10 @@ struct StmtTest {
   State expected;
 };
 
-void test_interp(ExprTest tests[]) {
+typedef int ExprInterpreter(State* state, const Expr* expr);
+typedef void StmtInterpreter(State* state, const Stmt* stmt);
+
+void test_interp(ExprTest tests[], ExprInterpreter interpret) {
   fprintf(stderr, "Testing interpreter (expr) ");
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].expr != nullptr; i++) {
@@ -191,7 +194,7 @@ void test_interp(ExprTest tests[]) {
   }
 }
 
-void test_interp(StmtTest tests[]) {
+void test_interp(StmtTest tests[], StmtInterpreter interpret) {
   fprintf(stderr, "Testing interpreter (stmt) ");
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].stmt != nullptr; i++) {
@@ -225,7 +228,6 @@ int main() {
       {State{}, new LessThan(new IntLit(3), new IntLit(2)), 0},
       {State{}, nullptr, 0},
   };
-  test_interp(expr_tests);
   StmtTest stmt_tests[] = {
       {new ExprStmt(new IntLit(123)), State{}},
       {new ExprStmt(new VarAssign(new VarRef(3), new IntLit(123))),
@@ -253,5 +255,6 @@ int main() {
        State{}.set(0, 456)},
       {nullptr, State{}},
   };
-  test_interp(stmt_tests);
+  test_interp(expr_tests, interpret_expr);
+  test_interp(stmt_tests, interpret_stmt);
 }
