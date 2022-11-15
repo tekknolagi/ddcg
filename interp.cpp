@@ -167,9 +167,8 @@ void compile_expr(State* state, const Expr* expr) {
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
       compile_expr(state, assign->right);
-      pop_reg(RAX);
+      mov_reg_mem(RAX, base_index_scale(RSP, RSP, X4));
       mov_mem_reg(var_at(assign->left->offset), RAX);
-      push_reg(RAX);
       break;
     }
     default: {
