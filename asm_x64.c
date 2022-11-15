@@ -1,5 +1,9 @@
 // x64 encoding
 
+#include <inttypes.h>
+#include <assert.h>
+#define INLINE inline
+
 enum Reg {
     RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI,
     R8,  R9,  R10, R11, R12, R13, R14, R15,
@@ -88,7 +92,7 @@ INLINE int isrel8(uint32_t rel) {
     return rel + 128 < 256;
 }
 
-char *here;
+uint8_t *here;
 
 INLINE void emit(uint64_t data, int len) {
     assert(len <= 8);
@@ -105,12 +109,12 @@ INLINE void emit_instr(int64_t op, int oplen, uint64_t rx, uint64_t base, uint64
 }
 
 typedef struct {
-    int isripdisp : 1;
-    int isindex : 1;
-    uint64_t base;
-    uint64_t index;
-    uint64_t scale;
-    uint64_t disp;
+    bool isripdisp{false};
+    bool isindex{false};
+    uint64_t base{0};
+    uint64_t index{0};
+    uint64_t scale{0};
+    uint64_t disp{0};
 } Mem;
 
 INLINE void emit_op_rx_mem(uint64_t op, int oplen, uint64_t rx, Mem mem) {
@@ -353,7 +357,7 @@ INLINE void set8_reg_if(uint64_t cond, uint64_t dest_reg) {
     emit_op_reg(0x900F | (cond << 8), 2, 0, dest_reg);
 }
 
-INLINE uint32_t *jmp(const char *target) {
+INLINE uint32_t *jmp(const uint8_t *target) {
     uint32_t rel = (uint32_t)(target - (here + 2));
     if (isrel8(rel)) {
         emit(0xEB | (rel << 8), 2);
@@ -364,7 +368,7 @@ INLINE uint32_t *jmp(const char *target) {
     }
 }
 
-INLINE uint32_t *jmp_if(uint64_t cond, const char *target) {
+INLINE uint32_t *jmp_if(uint64_t cond, const uint8_t*target) {
     assert(cond < 16);
     uint32_t rel = (uint32_t)(target - (here + 2));
     if (isrel8(rel)) {
@@ -376,8 +380,8 @@ INLINE uint32_t *jmp_if(uint64_t cond, const char *target) {
     }
 }
 
-INLINE void patch_rel(uint32_t *rel_ptr, const char *target) {
-    *rel_ptr = (uint32_t)(target - ((char *)rel_ptr + 4));
+INLINE void patch_rel(uint32_t *rel_ptr, const uint8_t *target) {
+    *rel_ptr = (uint32_t)(target - ((uint8_t *)rel_ptr + 4));
 }
 
 // addressing helpers
@@ -391,23 +395,23 @@ INLINE Mem base_disp(uint64_t base, uint64_t disp) {
 }
 
 INLINE Mem base_index(uint64_t base, uint64_t index) {
-    return (Mem){.base = base, .index = index, .isindex = 1};
+    return (Mem){.isindex = 1, .base = base, .index = index};
 }
 
 INLINE Mem base_index_disp(uint64_t base, uint64_t index, uint64_t disp) {
-    return (Mem){.base = base, .index = index, .disp = disp, .isindex = 1};
+    return (Mem){.isindex = 1, .base = base, .index = index, .disp = disp};
 }
 
 INLINE Mem base_index_scale(uint64_t base, uint64_t index, uint64_t scale) {
-    return (Mem){.base = base, .index = index, .scale = scale, .isindex = 1};
+    return (Mem){.isindex = 1, .base = base, .index = index, .scale = scale};
 }
 
 INLINE Mem base_index_scale_disp(uint64_t base, uint64_t index, uint64_t scale, uint64_t disp) {
-    return (Mem){.base = base, .index = index, .scale = scale, .disp = disp, .isindex = 1};
+    return (Mem){.isindex = 1, .base = base, .index = index, .scale = scale, .disp = disp};
 }
 
 INLINE Mem rip_disp(uint64_t disp) {
-    return (Mem){.disp = disp, .isripdisp = 1};
+    return (Mem){.isripdisp = 1, .disp = disp};
 }
 
 void example(void) {
@@ -436,7 +440,7 @@ void example(void) {
     movzx8_reg_mem(RAX, base_index_scale(RBX, RCX, X8));
     movzx16_reg_mem(RAX, base_index_scale(RBX, RCX, X8));
     movzx32_reg_mem(RAX, base_index_scale(RBX, RCX, X8));
-    const char *start = here;
+    const uint8_t *start = here;
     uint32_t *rel_ptr = jmp(0);
     set8_reg_if(NE, R9);
     cmov_reg_reg_if(LE, RAX, R9);
