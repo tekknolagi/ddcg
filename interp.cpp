@@ -2,11 +2,11 @@
 #include <stddef.h>   /* for NULL */
 #include <string.h>   /* for memcpy */
 #include <sys/mman.h> /* for mmap and friends */
+#include <unistd.h>
 
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
-#include <unistd.h>
 
 #include "asm/asm_x64.c"
 
