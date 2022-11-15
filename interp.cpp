@@ -136,6 +136,10 @@ int interpret_expr(State* state, const Expr* expr) {
   }
 }
 
+Mem var_at(int offset) {
+  return base_disp(RDI, offset * sizeof(State{}.vars[0]));
+}
+
 void compile_expr(State* state, const Expr* expr) {
   (void)state;
   switch (expr->type) {
@@ -156,7 +160,15 @@ void compile_expr(State* state, const Expr* expr) {
     }
     case ExprType::kVarRef: {
       int offset = reinterpret_cast<const VarRef*>(expr)->offset;
-      mov_reg_mem(RAX, base_disp(RDI, offset * sizeof(state->vars[0])));
+      mov_reg_mem(RAX, var_at(offset));
+      push_reg(RAX);
+      break;
+    }
+    case ExprType::kVarAssign: {
+      auto assign = reinterpret_cast<const VarAssign*>(expr);
+      compile_expr(state, assign->right);
+      pop_reg(RAX);
+      mov_mem_reg(var_at(assign->left->offset), RAX);
       push_reg(RAX);
       break;
     }
