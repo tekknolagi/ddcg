@@ -382,19 +382,19 @@ INLINE uint32_t *jmp_if(uint64_t cond, const uint8_t*target) {
 }
 
 INLINE void ret() {
-  emit(0xc3, 1);
+    emit(0xc3, 1);
 }
 
-void push_reg(uint64_t src_reg) {
+INLINE void push_reg(uint64_t src_reg) {
     emit(0x50 | src_reg, 1);
 }
 
-void push_imm(uint64_t imm) {
+INLINE void push_imm(uint64_t imm) {
     emit(0x68, 1);
     emit(imm, 4);
 }
 
-void pop_reg(uint64_t dst_reg) {
+INLINE void pop_reg(uint64_t dst_reg) {
     emit(0x58 | dst_reg, 1);
 }
 
