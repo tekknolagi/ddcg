@@ -171,6 +171,18 @@ void compile_expr(State* state, const Expr* expr) {
       mov_mem_reg(var_at(assign->left->offset), RAX);
       break;
     }
+    case ExprType::kLessThan: {
+      auto less = reinterpret_cast<const LessThan*>(expr);
+      compile_expr(state, less->left);
+      compile_expr(state, less->right);
+      pop_reg(RBX);
+      pop_reg(RAX);
+      sub_reg_reg(RAX, RBX);
+      mov_reg_imm(RAX, 0);
+      set8_reg_if(L, RAX);
+      push_reg(RAX);
+      break;
+    }
     default: {
       std::fprintf(stderr, "unsupported expr type\n");
       std::abort();
