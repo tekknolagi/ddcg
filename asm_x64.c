@@ -389,6 +389,11 @@ void push_reg(uint64_t src_reg) {
     emit(0x50 | src_reg, 1);
 }
 
+void push_imm(uint64_t imm) {
+    emit(0x68, 1);
+    emit(imm, 4);
+}
+
 void pop_reg(uint64_t dst_reg) {
     emit(0x58 | dst_reg, 1);
 }

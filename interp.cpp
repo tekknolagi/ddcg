@@ -138,24 +138,22 @@ int interpret_expr(State* state, const Expr* expr) {
 
 typedef int (*JitFunction)();
 
-int jit_expr(State* state, const Expr* expr) {
+void compile_expr(State* state, const Expr* expr) {
   (void)state;
-  const int kProgramSize = getpagesize();  // should be enough
-  void* memory = ::mmap(/*addr=*/nullptr, /*length=*/kProgramSize,
-                        /*prot=*/PROT_READ | PROT_WRITE,
-                        /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
-                        /*filedes=*/-1, /*offset=*/0);
-  assert(memory != MAP_FAILED && "mmap failed");
-  here = reinterpret_cast<uint8_t*>(memory);
-  // emit prologue
-  push_reg(RBP);
-  mov_reg_reg(RBP, RSP);
-  sub_reg_imm(RSP, kNumVars);
-  // emit expr
   switch (expr->type) {
     case ExprType::kIntLit: {
       int value = reinterpret_cast<const IntLit*>(expr)->value;
-      mov_reg_imm(RAX, value);
+      push_imm(value);
+      break;
+    }
+    case ExprType::kAddExpr: {
+      auto add = reinterpret_cast<const AddExpr*>(expr);
+      compile_expr(state, add->left);
+      compile_expr(state, add->right);
+      pop_reg(RBX);
+      pop_reg(RAX);
+      add_reg_reg(RAX, RBX);
+      push_reg(RAX);
       break;
     }
     default: {
@@ -163,6 +161,24 @@ int jit_expr(State* state, const Expr* expr) {
       std::abort();
     }
   }
+}
+
+int jit_expr(State* state, const Expr* expr) {
+  const int kProgramSize = getpagesize();  // should be enough
+  void* memory = ::mmap(/*addr=*/nullptr, /*length=*/kProgramSize,
+                        /*prot=*/PROT_READ | PROT_WRITE,
+                        /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
+                        /*filedes=*/-1, /*offset=*/0);
+  assert(memory != MAP_FAILED && "mmap failed");
+
+  here = reinterpret_cast<uint8_t*>(memory);
+  // emit prologue
+  push_reg(RBP);
+  mov_reg_reg(RBP, RSP);
+  sub_reg_imm(RSP, kNumVars);
+  // emit expr
+  compile_expr(state, expr);
+  pop_reg(RAX);
   // emit epilogue
   mov_reg_reg(RSP, RBP);
   pop_reg(RBP);
