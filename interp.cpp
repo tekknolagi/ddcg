@@ -136,8 +136,6 @@ int interpret_expr(State* state, const Expr* expr) {
   }
 }
 
-typedef int (*JitFunction)();
-
 void compile_expr(State* state, const Expr* expr) {
   (void)state;
   switch (expr->type) {
@@ -156,12 +154,21 @@ void compile_expr(State* state, const Expr* expr) {
       push_reg(RAX);
       break;
     }
+    case ExprType::kVarRef: {
+      int offset = reinterpret_cast<const VarRef*>(expr)->offset;
+      mov_reg_mem(RAX, base_disp(RDI, offset * sizeof(state->vars[0])));
+      push_reg(RAX);
+      break;
+    }
     default: {
       std::fprintf(stderr, "unsupported expr type\n");
       std::abort();
     }
   }
 }
+
+// use passed-in vars as base pointer for locals (RDI)
+typedef int (*JitFunction)(int* vars);
 
 int jit_expr(State* state, const Expr* expr) {
   const int kProgramSize = getpagesize();  // should be enough
@@ -187,7 +194,7 @@ int jit_expr(State* state, const Expr* expr) {
   int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
   assert(mprotect_result == 0 && "mprotect failed");
   JitFunction function = *(JitFunction*)&memory;
-  int result = function();
+  int result = function(state->vars);
   int munmap_result = ::munmap(memory, kProgramSize);
   assert(munmap_result == 0 && "munmap failed");
   return result;
