@@ -7,6 +7,7 @@ enum class ExprType {
   kAddExpr,
   kVarRef,
   kVarAssign,
+  kLessThan,
 };
 
 struct Expr {
@@ -38,9 +39,17 @@ struct VarAssign : public Expr {
   Expr* right;
 };
 
+struct LessThan : public Expr {
+  explicit LessThan(Expr* left, Expr* right)
+      : Expr(ExprType::kLessThan), left(left), right(right) {}
+  Expr* left;
+  Expr* right;
+};
+
 enum class StmtType {
   kExpr,
   kBlock,
+  kIf,
 };
 
 struct Stmt {
@@ -57,6 +66,14 @@ struct BlockStmt : public Stmt {
   explicit BlockStmt(const std::vector<const Stmt*>& body)
       : Stmt(StmtType::kBlock), body(body) {}
   std::vector<const Stmt*> body;
+};
+
+struct IfStmt : public Stmt {
+  explicit IfStmt(Expr* cond, Stmt* cons, Stmt* alt)
+      : Stmt(StmtType::kIf), cond(cond), cons(cons), alt(alt) {}
+  Expr* cond;
+  Stmt* cons;
+  Stmt* alt;
 };
 
 constexpr int kNumVars = 26;
@@ -98,6 +115,12 @@ int interpret(State* state, const Expr* expr) {
       state->vars[assign->left->offset] = result;
       return result;
     }
+    case ExprType::kLessThan: {
+      auto less = reinterpret_cast<const LessThan*>(expr);
+      int left = interpret(state, less->left);
+      int right = interpret(state, less->right);
+      return left < right;
+    }
     default: {
       std::fprintf(stderr, "unsupported expr type\n");
       std::abort();
@@ -117,6 +140,20 @@ void interpret(State* state, const Stmt* stmt) {
         interpret(state, block->body[i]);
       }
       break;
+    }
+    case StmtType::kIf: {
+      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+      int result = interpret(state, if_->cond);
+      if (result) {
+        interpret(state, if_->cons);
+      } else {
+        interpret(state, if_->alt);
+      }
+      break;
+    }
+    default: {
+      std::fprintf(stderr, "unsupported stmt type\n");
+      std::abort();
     }
   }
 }
@@ -183,6 +220,9 @@ int main() {
       {State{}, new AddExpr(new IntLit(123), new IntLit(456)), 579},
       {State{}.set(3, 123), new VarRef(3), 123},
       {State{}, new VarAssign(new VarRef(3), new IntLit(123)), 123},
+      {State{}, new LessThan(new IntLit(1), new IntLit(2)), 1},
+      {State{}, new LessThan(new IntLit(2), new IntLit(2)), 0},
+      {State{}, new LessThan(new IntLit(3), new IntLit(2)), 0},
       {State{}, nullptr, 0},
   };
   test_interp(expr_tests);
@@ -195,6 +235,22 @@ int main() {
            new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
        }),
        State{}.set(0, 123).set(1, 456)},
+      {new IfStmt(new IntLit(1),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new IntLit(7),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new IntLit(-7),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new IntLit(0),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 456)},
       {nullptr, State{}},
   };
   test_interp(stmt_tests);
