@@ -292,6 +292,7 @@ INLINE void emit_op_mem_imm(uint64_t op8, uint64_t op32, int oplen, uint64_t rx8
 
 #define X64_BINARY_TABLE(_) \
     _(add,    0x03,    0x01,   0x83,    0x00,     0x81,     0x00) \
+    _(sub,    0x2B,    0x29,   0x83,    0x05,     0x81,     0x05) \
     _(and,    0x23,    0x21,   0x83,    0x04,     0x81,     0x04) \
     _(mov,    0x8B,    0x89,   0x00,    0x00,     0xC7,     0x00) \
 //  _(name,   reg_rm,  rm_reg, rm_imm8, rm_imm8x, rm_imm32, rm_imm32x)
@@ -378,6 +379,18 @@ INLINE uint32_t *jmp_if(uint64_t cond, const uint8_t*target) {
         emit(0x800F | (cond << 8) | ((rel - 4) << 16), 6);
         return (uint32_t *)(here - 4);
     }
+}
+
+INLINE void ret() {
+  emit(0xc3, 1);
+}
+
+void push_reg(uint64_t src_reg) {
+    emit(0x50 | src_reg, 1);
+}
+
+void pop_reg(uint64_t dst_reg) {
+    emit(0x58 | dst_reg, 1);
 }
 
 INLINE void patch_rel(uint32_t *rel_ptr, const uint8_t *target) {

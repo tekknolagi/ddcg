@@ -1,6 +1,14 @@
+#include <assert.h>   /* for assert */
+#include <stddef.h>   /* for NULL */
+#include <string.h>   /* for memcpy */
+#include <sys/mman.h> /* for mmap and friends */
+
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <unistd.h>
+
+#include "asm/asm_x64.c"
 
 enum class ExprType {
   kIntLit,
@@ -128,6 +136,47 @@ int interpret_expr(State* state, const Expr* expr) {
   }
 }
 
+typedef int (*JitFunction)();
+
+int jit_expr(State* state, const Expr* expr) {
+  (void)state;
+  const int kProgramSize = getpagesize();  // should be enough
+  void* memory = ::mmap(/*addr=*/nullptr, /*length=*/kProgramSize,
+                        /*prot=*/PROT_READ | PROT_WRITE,
+                        /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
+                        /*filedes=*/-1, /*offset=*/0);
+  assert(memory != MAP_FAILED && "mmap failed");
+  here = reinterpret_cast<uint8_t*>(memory);
+  // emit prologue
+  push_reg(RBP);
+  mov_reg_reg(RBP, RSP);
+  sub_reg_imm(RSP, kNumVars);
+  // emit expr
+  switch (expr->type) {
+    case ExprType::kIntLit: {
+      int value = reinterpret_cast<const IntLit*>(expr)->value;
+      mov_reg_imm(RAX, value);
+      break;
+    }
+    default: {
+      std::fprintf(stderr, "unsupported expr type\n");
+      std::abort();
+    }
+  }
+  // emit epilogue
+  mov_reg_reg(RSP, RBP);
+  pop_reg(RBP);
+  ret();
+
+  int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
+  assert(mprotect_result == 0 && "mprotect failed");
+  JitFunction function = *(JitFunction*)&memory;
+  int result = function();
+  int munmap_result = ::munmap(memory, kProgramSize);
+  assert(munmap_result == 0 && "munmap failed");
+  return result;
+}
+
 void interpret_stmt(State* state, const Stmt* stmt) {
   switch (stmt->type) {
     case StmtType::kExpr: {
@@ -173,7 +222,6 @@ typedef int ExprInterpreter(State* state, const Expr* expr);
 typedef void StmtInterpreter(State* state, const Stmt* stmt);
 
 void test_interp(ExprTest tests[], ExprInterpreter interpret) {
-  fprintf(stderr, "Testing interpreter (expr) ");
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].expr != nullptr; i++) {
     int result = interpret(&tests[i].state, tests[i].expr);
@@ -195,7 +243,6 @@ void test_interp(ExprTest tests[], ExprInterpreter interpret) {
 }
 
 void test_interp(StmtTest tests[], StmtInterpreter interpret) {
-  fprintf(stderr, "Testing interpreter (stmt) ");
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].stmt != nullptr; i++) {
     State state;
@@ -255,6 +302,10 @@ int main() {
        State{}.set(0, 456)},
       {nullptr, State{}},
   };
+  fprintf(stderr, "Testing interpreter (expr) ");
   test_interp(expr_tests, interpret_expr);
+  fprintf(stderr, "Testing jit (expr) ");
+  test_interp(expr_tests, jit_expr);
+  fprintf(stderr, "Testing interpreter (stmt) ");
   test_interp(stmt_tests, interpret_stmt);
 }
