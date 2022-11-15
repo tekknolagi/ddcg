@@ -140,46 +140,110 @@ Mem var_at(int offset) {
   return base_disp(RDI, offset * sizeof(State{}.vars[0]));
 }
 
-void compile_expr(const Expr* expr) {
+enum class Destination {
+  kStack,
+  kAccumulator,
+  kNowhere,
+};
+
+struct Imm {
+  explicit Imm(int value) : value(value) {}
+  int value;
+};
+
+void plug(Destination dest, Imm imm) {
+  Reg tmp = RBX;
+  switch (dest) {
+    case Destination::kStack: {
+      push_imm(imm.value);
+      break;
+    }
+    case Destination::kAccumulator: {
+      mov_reg_imm(RAX, imm.value);
+      break;
+    }
+    case Destination::kNowhere: {
+      // Nothing to do
+      break;
+    }
+  }
+}
+
+void plug(Destination dest, Reg reg) {
+  assert(reg == RAX);
+  switch (dest) {
+    case Destination::kStack: {
+      push_reg(reg);
+      break;
+    }
+    case Destination::kAccumulator:
+    case Destination::kNowhere: {
+      // Nothing to do
+      break;
+    }
+  }
+}
+
+void plug(Destination dest, Mem mem) {
+  Reg tmp = RBX;
+  switch (dest) {
+    case Destination::kStack: {
+      mov_reg_mem(tmp, mem);
+      push_reg(tmp);
+      break;
+    }
+    case Destination::kAccumulator: {
+      mov_reg_mem(RAX, mem);
+      break;
+    }
+    case Destination::kNowhere: {
+      // Nothing to do
+      break;
+    }
+  }
+}
+
+void compile_expr(const Expr* expr, Destination dest) {
   switch (expr->type) {
     case ExprType::kIntLit: {
       int value = reinterpret_cast<const IntLit*>(expr)->value;
-      push_imm(value);
+      plug(dest, Imm(value));
       break;
     }
     case ExprType::kAddExpr: {
       auto add = reinterpret_cast<const AddExpr*>(expr);
-      compile_expr(add->left);
-      compile_expr(add->right);
+      compile_expr(add->left, Destination::kStack);
+      compile_expr(add->right, Destination::kAccumulator);
       pop_reg(RBX);
-      pop_reg(RAX);
       add_reg_reg(RAX, RBX);
-      push_reg(RAX);
+      plug(dest, RAX);
       break;
     }
     case ExprType::kVarRef: {
       int offset = reinterpret_cast<const VarRef*>(expr)->offset;
-      mov_reg_mem(RAX, var_at(offset));
-      push_reg(RAX);
+      plug(dest, var_at(offset));
       break;
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
-      compile_expr(assign->right);
-      mov_reg_mem(RAX, base_index_scale(RSP, RSP, X4));
+      compile_expr(assign->right, Destination::kAccumulator);
       mov_mem_reg(var_at(assign->left->offset), RAX);
+      plug(dest, RAX);
       break;
     }
     case ExprType::kLessThan: {
       auto less = reinterpret_cast<const LessThan*>(expr);
-      compile_expr(less->left);
-      compile_expr(less->right);
+      compile_expr(less->left, Destination::kStack);
+      compile_expr(less->right, Destination::kAccumulator);
       pop_reg(RBX);
-      pop_reg(RAX);
-      sub_reg_reg(RAX, RBX);
-      mov_reg_imm(RAX, 0);
-      set8_reg_if(L, RAX);
-      push_reg(RAX);
+      // TODO(emacs): Use cmp
+      sub_reg_reg(RBX, RAX);
+      uint32_t* false_ptr = jmp_if(GE, 0);
+      plug(dest, Imm(1));
+      uint32_t* done_ptr = jmp(0);
+      patch_rel(false_ptr, here);
+      plug(dest, Imm(0));
+      patch_rel(done_ptr, here);
       break;
     }
     default: {
@@ -192,8 +256,8 @@ void compile_expr(const Expr* expr) {
 void compile_stmt(const Stmt* stmt) {
   switch (stmt->type) {
     case StmtType::kExpr: {
-      compile_expr(reinterpret_cast<const ExprStmt*>(stmt)->expr);
-      pop_reg(RAX);
+      compile_expr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
+                   Destination::kNowhere);
       break;
     }
     case StmtType::kBlock: {
@@ -205,8 +269,7 @@ void compile_stmt(const Stmt* stmt) {
     }
     case StmtType::kIf: {
       auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      compile_expr(if_->cond);
-      pop_reg(RAX);
+      compile_expr(if_->cond, Destination::kAccumulator);
       and_reg_reg(RAX, RAX);  // check if falsey
       uint32_t* else_ptr = jmp_if(E, 0);
       // true:
@@ -243,8 +306,7 @@ int jit_expr(State* state, const Expr* expr) {
   mov_reg_reg(RBP, RSP);
   sub_reg_imm(RSP, kNumVars);
   // emit expr
-  compile_expr(expr);
-  pop_reg(RAX);
+  compile_expr(expr, Destination::kAccumulator);
   // emit epilogue
   mov_reg_reg(RSP, RBP);
   pop_reg(RBP);
