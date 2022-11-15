@@ -59,13 +59,23 @@ struct BlockStmt : public Stmt {
   std::vector<const Stmt*> body;
 };
 
+constexpr int kNumVars = 26;
+
 struct State {
   State set(int offset, int value) const {
     State result = *this;
     result.vars[offset] = value;
     return result;
   }
-  int vars[26] = {};
+  bool operator==(const State& other) {
+    for (size_t i = 0; i < kNumVars; i++) {
+      if (vars[i] != other.vars[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+  int vars[kNumVars] = {};
 };
 
 int interpret(State* state, const Expr* expr) {
