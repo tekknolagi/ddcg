@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <vector>
 
-#include "asm/asm_x64.c"
+#include "asm_x64.c"
 
 enum class ExprType {
   kIntLit,
