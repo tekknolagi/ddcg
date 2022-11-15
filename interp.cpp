@@ -196,6 +196,13 @@ void compile_stmt(const Stmt* stmt) {
       pop_reg(RAX);
       break;
     }
+    case StmtType::kBlock: {
+      auto block = reinterpret_cast<const BlockStmt*>(stmt);
+      for (size_t i = 0; i < block->body.size(); i++) {
+        compile_stmt(block->body[i]);
+      }
+      break;
+    }
     default: {
       std::fprintf(stderr, "unsupported stmt type\n");
       std::abort();
