@@ -6,7 +6,7 @@ enum class ExprType {
   kIntLit,
   kAddExpr,
   kVarRef,
-  kAssign,
+  kVarAssign,
 };
 
 struct Expr {
@@ -31,9 +31,9 @@ struct VarRef : public Expr {
   int offset;
 };
 
-struct Assign : public Expr {
-  explicit Assign(VarRef* left, Expr* right)
-      : Expr(ExprType::kAssign), left(left), right(right) {}
+struct VarAssign : public Expr {
+  explicit VarAssign(VarRef* left, Expr* right)
+      : Expr(ExprType::kVarAssign), left(left), right(right) {}
   VarRef* left;
   Expr* right;
 };
