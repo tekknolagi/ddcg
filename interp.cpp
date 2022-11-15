@@ -203,6 +203,22 @@ void compile_stmt(const Stmt* stmt) {
       }
       break;
     }
+    case StmtType::kIf: {
+      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+      compile_expr(if_->cond);
+      pop_reg(RAX);
+      and_reg_reg(RAX, RAX);  // check if falsey
+      uint32_t* else_ptr = jmp_if(E, 0);
+      // true:
+      compile_stmt(if_->cons);
+      uint32_t* exit_ptr = jmp(0);
+      // false:
+      patch_rel(else_ptr, here);
+      compile_stmt(if_->alt);
+      // exit:
+      patch_rel(exit_ptr, here);
+      break;
+    }
     default: {
       std::fprintf(stderr, "unsupported stmt type\n");
       std::abort();
