@@ -97,20 +97,18 @@ void interpret(State* state, const Stmt* stmt) {
   }
 }
 
-void test_interp() {
-  struct expr_test {
-    Expr* expr;
-    int expected;
-  } expr_tests[] = {
-      {new IntLit(123), 123},
-      {new AddExpr(new IntLit(123), new IntLit(456)), 579},
-      {nullptr, 0},
-  };
+struct ExprTest {
+  Expr* expr;
+  int expected;
+};
+
+void test_interp(ExprTest tests[]) {
+  fprintf(stderr, "Testing interpreter ");
   std::vector<size_t> failed;
-  for (size_t i = 0; expr_tests[i].expr != nullptr; i++) {
+  for (size_t i = 0; tests[i].expr != nullptr; i++) {
     State state;
-    int result = interpret(&state, expr_tests[i].expr);
-    if (result == expr_tests[i].expected) {
+    int result = interpret(&state, tests[i].expr);
+    if (result == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
       failed.push_back(i);
@@ -127,4 +125,11 @@ void test_interp() {
   }
 }
 
-int main() { test_interp(); }
+int main() {
+  ExprTest tests[] = {
+      {new IntLit(123), 123},
+      {new AddExpr(new IntLit(123), new IntLit(456)), 579},
+      {nullptr, 0},
+  };
+  test_interp(tests);
+}
