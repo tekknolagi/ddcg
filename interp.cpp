@@ -189,6 +189,20 @@ void compile_expr(const Expr* expr) {
   }
 }
 
+void compile_stmt(const Stmt* stmt) {
+  switch (stmt->type) {
+    case StmtType::kExpr: {
+      compile_expr(reinterpret_cast<const ExprStmt*>(stmt)->expr);
+      pop_reg(RAX);
+      break;
+    }
+    default: {
+      std::fprintf(stderr, "unsupported stmt type\n");
+      std::abort();
+    }
+  }
+}
+
 // use passed-in vars as base pointer for locals (RDI)
 typedef int (*JitFunction)(int* vars);
 
@@ -220,6 +234,35 @@ int jit_expr(State* state, const Expr* expr) {
   int munmap_result = ::munmap(memory, kProgramSize);
   assert(munmap_result == 0 && "munmap failed");
   return result;
+}
+
+void jit_stmt(State* state, const Stmt* stmt) {
+  const int kProgramSize = getpagesize();  // should be enough
+  void* memory = ::mmap(/*addr=*/nullptr, /*length=*/kProgramSize,
+                        /*prot=*/PROT_READ | PROT_WRITE,
+                        /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
+                        /*filedes=*/-1, /*offset=*/0);
+  assert(memory != MAP_FAILED && "mmap failed");
+
+  here = reinterpret_cast<uint8_t*>(memory);
+  // emit prologue
+  push_reg(RBP);
+  mov_reg_reg(RBP, RSP);
+  sub_reg_imm(RSP, kNumVars);
+  // emit expr
+  compile_stmt(stmt);
+  // emit epilogue
+  mov_reg_reg(RSP, RBP);
+  pop_reg(RBP);
+  ret();
+
+  int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
+  assert(mprotect_result == 0 && "mprotect failed");
+  JitFunction function = *(JitFunction*)&memory;
+  function(state->vars);
+  int munmap_result = ::munmap(memory, kProgramSize);
+  assert(munmap_result == 0 && "munmap failed");
+  return;
 }
 
 void interpret_stmt(State* state, const Stmt* stmt) {
@@ -353,4 +396,6 @@ int main() {
   test_interp(expr_tests, jit_expr);
   fprintf(stderr, "Testing interpreter (stmt) ");
   test_interp(stmt_tests, interpret_stmt);
+  fprintf(stderr, "Testing jit (stmt) ");
+  test_interp(stmt_tests, jit_stmt);
 }
