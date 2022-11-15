@@ -146,12 +146,71 @@ enum class Destination {
   kNowhere,
 };
 
+struct Label {
+  ~Label() { patch(); }
+  void bind() {
+    assert(!is_bound());
+    loc = here;
+  }
+  bool is_bound() const { return loc != nullptr; }
+  void ref(uint32_t* ref) { refs.push_back(ref); }
+  void patch() {
+    assert(is_bound());
+    for (uint32_t* ref : refs) {
+      patch_rel(ref, loc);
+    }
+  }
+  // TODO(max): Add support for emitting jmp/jmp_if from label directly to
+  // avoid the weird ref(jmp(...)) dance
+  uint8_t* loc{nullptr};
+  std::vector<uint32_t*> refs;
+};
+
+enum class ControlDestinationType {
+  kRegister,
+  kCondition,
+};
+
+struct ControlDestination {
+  explicit ControlDestination(Label* next) : cons(next), alt(next) {}
+  explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
+  static ControlDestination nowhere() {
+    return ControlDestination(nullptr, nullptr);
+  }
+  Reg reg;
+  Label* cons;
+  Label* alt;
+};
+
 struct Imm {
   explicit Imm(int value) : value(value) {}
   int value;
 };
 
-void plug(Destination dest, Imm imm) {
+void plug(Destination dest, ControlDestination cdest, Cond cond) {
+  switch (dest) {
+    case Destination::kStack: {
+      assert(false);
+      break;
+    }
+    case Destination::kAccumulator: {
+      uint32_t* materialize_true = jmp_if(cond, 0);
+      mov_reg_imm(RAX, 0);
+      cdest.alt->ref(jmp(0));
+      patch_rel(materialize_true, here);
+      mov_reg_imm(RAX, 1);
+      cdest.cons->ref(jmp(0));
+      break;
+    }
+    case Destination::kNowhere: {
+      cdest.cons->ref(jmp_if(cond, 0));
+      cdest.alt->ref(jmp(0));
+      break;
+    }
+  }
+}
+
+void plug(Destination dest, ControlDestination cdest, Imm imm) {
   Reg tmp = RBX;
   switch (dest) {
     case Destination::kStack: {
@@ -163,22 +222,30 @@ void plug(Destination dest, Imm imm) {
       break;
     }
     case Destination::kNowhere: {
-      // Nothing to do
+      mov_reg_imm(RBX, imm.value);
+      and_reg_reg(RBX, RBX);
+      cdest.alt->ref(jmp_if(E, 0));
+      cdest.cons->ref(jmp(0));
       break;
     }
   }
 }
 
-void plug(Destination dest, Reg reg) {
+void plug(Destination dest, ControlDestination cdest, Reg reg) {
   assert(reg == RAX);
   switch (dest) {
     case Destination::kStack: {
       push_reg(reg);
       break;
     }
-    case Destination::kAccumulator:
-    case Destination::kNowhere: {
+    case Destination::kAccumulator: {
       // Nothing to do
+      break;
+    }
+    case Destination::kNowhere: {
+      cmp_reg_reg(reg, 0);
+      cdest.cons->ref(jmp_if(E, 0));
+      cdest.alt->ref(jmp(0));
       break;
     }
   }
@@ -203,20 +270,21 @@ void plug(Destination dest, Mem mem) {
   }
 }
 
-void compile_expr(const Expr* expr, Destination dest) {
+void compile_expr(const Expr* expr, Destination dest,
+                  ControlDestination cdest) {
   switch (expr->type) {
     case ExprType::kIntLit: {
       int value = reinterpret_cast<const IntLit*>(expr)->value;
-      plug(dest, Imm(value));
+      plug(dest, cdest, Imm(value));
       break;
     }
     case ExprType::kAddExpr: {
       auto add = reinterpret_cast<const AddExpr*>(expr);
-      compile_expr(add->left, Destination::kStack);
-      compile_expr(add->right, Destination::kAccumulator);
+      compile_expr(add->left, Destination::kStack, cdest);
+      compile_expr(add->right, Destination::kAccumulator, cdest);
       pop_reg(RBX);
       add_reg_reg(RAX, RBX);
-      plug(dest, RAX);
+      plug(dest, cdest, RAX);
       break;
     }
     case ExprType::kVarRef: {
@@ -226,24 +294,19 @@ void compile_expr(const Expr* expr, Destination dest) {
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
-      compile_expr(assign->right, Destination::kAccumulator);
+      compile_expr(assign->right, Destination::kAccumulator, cdest);
       mov_mem_reg(var_at(assign->left->offset), RAX);
-      plug(dest, RAX);
+      plug(dest, cdest, RAX);
       break;
     }
     case ExprType::kLessThan: {
       auto less = reinterpret_cast<const LessThan*>(expr);
-      compile_expr(less->left, Destination::kStack);
-      compile_expr(less->right, Destination::kAccumulator);
+      compile_expr(less->left, Destination::kStack, cdest);
+      compile_expr(less->right, Destination::kAccumulator, cdest);
       pop_reg(RBX);
-      // TODO(emacs): Use cmp
+      // TODO(max): Use cmp
       sub_reg_reg(RBX, RAX);
-      uint32_t* false_ptr = jmp_if(GE, 0);
-      plug(dest, Imm(1));
-      uint32_t* done_ptr = jmp(0);
-      patch_rel(false_ptr, here);
-      plug(dest, Imm(0));
-      patch_rel(done_ptr, here);
+      plug(dest, cdest, L);
       break;
     }
     default: {
@@ -253,33 +316,38 @@ void compile_expr(const Expr* expr, Destination dest) {
   }
 }
 
-void compile_stmt(const Stmt* stmt) {
+void compile_stmt(const Stmt* stmt, ControlDestination cdest) {
   switch (stmt->type) {
     case StmtType::kExpr: {
       compile_expr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
-                   Destination::kNowhere);
+                   Destination::kNowhere, cdest);
       break;
     }
     case StmtType::kBlock: {
       auto block = reinterpret_cast<const BlockStmt*>(stmt);
       for (size_t i = 0; i < block->body.size(); i++) {
-        compile_stmt(block->body[i]);
+        Label next;
+        compile_stmt(block->body[i], ControlDestination(&next, &next));
+        next.bind();
       }
       break;
     }
     case StmtType::kIf: {
       auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      compile_expr(if_->cond, Destination::kAccumulator);
-      and_reg_reg(RAX, RAX);  // check if falsey
-      uint32_t* else_ptr = jmp_if(E, 0);
+      Label cons;
+      Label alt;
+      compile_expr(if_->cond, Destination::kNowhere,
+                   ControlDestination(&cons, &alt));
       // true:
-      compile_stmt(if_->cons);
-      uint32_t* exit_ptr = jmp(0);
+      cons.bind();
+      compile_stmt(if_->cons, cdest);
+      Label exit;
+      exit.ref(jmp(0));
       // false:
-      patch_rel(else_ptr, here);
-      compile_stmt(if_->alt);
+      alt.bind();
+      compile_stmt(if_->alt, cdest);
       // exit:
-      patch_rel(exit_ptr, here);
+      exit.bind();
       break;
     }
     default: {
@@ -306,7 +374,12 @@ int jit_expr(State* state, const Expr* expr) {
   mov_reg_reg(RBP, RSP);
   sub_reg_imm(RSP, kNumVars);
   // emit expr
-  compile_expr(expr, Destination::kAccumulator);
+  {
+    // Need a new scope so labels get bound before codegen time.
+    Label next;
+    compile_expr(expr, Destination::kAccumulator, ControlDestination(&next));
+    next.bind();
+  }
   // emit epilogue
   mov_reg_reg(RSP, RBP);
   pop_reg(RBP);
@@ -335,7 +408,12 @@ void jit_stmt(State* state, const Stmt* stmt) {
   mov_reg_reg(RBP, RSP);
   sub_reg_imm(RSP, kNumVars);
   // emit expr
-  compile_stmt(stmt);
+  {
+    // Need a new scope so labels get bound before codegen time.
+    Label next;
+    compile_stmt(stmt, ControlDestination(&next));
+    next.bind();
+  }
   // emit epilogue
   mov_reg_reg(RSP, RBP);
   pop_reg(RBP);
@@ -446,6 +524,7 @@ int main() {
       {State{}, new LessThan(new IntLit(1), new IntLit(2)), 1},
       {State{}, new LessThan(new IntLit(2), new IntLit(2)), 0},
       {State{}, new LessThan(new IntLit(3), new IntLit(2)), 0},
+      // TODO(max): Test compound conditionals
       {State{}, nullptr, 0},
   };
   StmtTest stmt_tests[] = {
@@ -473,6 +552,8 @@ int main() {
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
        State{}.set(0, 456)},
+      // TODO(max): Test nested if
+      // TODO(max): Test if-less-than
       {nullptr, State{}},
   };
   fprintf(stderr, "Testing interpreter (expr) ");
