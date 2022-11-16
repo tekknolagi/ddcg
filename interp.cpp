@@ -166,6 +166,12 @@ struct Label {
   std::vector<uint32_t*> refs;
 };
 
+void jmp(Label* label) { label->ref(jmp(static_cast<uint8_t*>(0))); }
+
+void jmp_if(Cond cond, Label* label) {
+  label->ref(jmp_if(cond, static_cast<uint8_t*>(0)));
+}
+
 enum class ControlDestinationType {
   kRegister,
   kCondition,
@@ -196,17 +202,17 @@ void plug(Destination dest, ControlDestination cdest, Cond cond) {
     }
     case Destination::kAccumulator: {
       Label materialize_true;
-      materialize_true.ref(jmp_if(cond, 0));
+      jmp_if(cond, &materialize_true);
       mov_reg_imm(RAX, 0);
-      cdest.alt->ref(jmp(0));
+      jmp(cdest.alt);
       materialize_true.bind();
       mov_reg_imm(RAX, 1);
-      cdest.cons->ref(jmp(0));
+      jmp(cdest.cons);
       break;
     }
     case Destination::kNowhere: {
-      cdest.cons->ref(jmp_if(cond, 0));
-      cdest.alt->ref(jmp(0));
+      jmp_if(cond, cdest.cons);
+      jmp(cdest.alt);
       break;
     }
   }
@@ -227,9 +233,9 @@ void plug(Destination dest, ControlDestination cdest, Imm imm) {
       // Nothing to do; not supposed to be materialized anywhere. Likely from
       // an ExprStmt.
       if (imm.value) {
-        cdest.cons->ref(jmp(0));
+        jmp(cdest.cons);
       } else {
-        cdest.alt->ref(jmp(0));
+        jmp(cdest.alt);
       }
       break;
     }
@@ -253,8 +259,8 @@ void plug(Destination dest, ControlDestination cdest, Reg reg) {
     case Destination::kNowhere: {
       assert(reg == RAX);
       cmp_reg_imm(reg, 0);
-      cdest.alt->ref(jmp_if(E, 0));
-      cdest.cons->ref(jmp(0));
+      jmp_if(E, cdest.alt);
+      jmp(cdest.cons);
       break;
     }
   }
@@ -352,7 +358,7 @@ void compile_stmt(const Stmt* stmt, ControlDestination cdest) {
       cons.bind();
       compile_stmt(if_->cons, cdest);
       Label exit;
-      exit.ref(jmp(0));
+      jmp(&exit);
       // false:
       alt.bind();
       compile_stmt(if_->alt, cdest);
