@@ -10,8 +10,6 @@
 
 #include "asm_x64.c"
 
-#include "dis.h"
-
 enum class ExprType {
   kIntLit,
   kAddExpr,
@@ -396,9 +394,6 @@ int jit_expr(State* state, const Expr* expr) {
   mov_reg_reg(RSP, RBP);
   pop_reg(RBP);
   ret();
-
-  std::string dis_result = disassembleToString(reinterpret_cast<uint8_t*>(memory), here - reinterpret_cast<uint8_t*>(memory));
-  std::fprintf(stderr, "code:\n%s\n", dis_result.c_str());
 
   int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
   assert(mprotect_result == 0 && "mprotect failed");
