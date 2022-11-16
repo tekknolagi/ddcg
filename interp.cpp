@@ -233,7 +233,7 @@ void plug(Destination dest, ControlDestination cdest, Imm imm) {
   }
   // TODO(max): Simplify by const folding
   mov_reg_imm(RBX, imm.value);
-  and_reg_reg(RBX, RBX);
+  cmp_reg_imm(RBX, 0);
   cdest.alt->ref(jmp_if(E, 0));
   cdest.cons->ref(jmp(0));
 }
