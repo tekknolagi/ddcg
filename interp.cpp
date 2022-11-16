@@ -588,6 +588,18 @@ int main() {
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
        State{}.set(0, 456)},
+      {new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new LessThan(new IntLit(2), new IntLit(2)),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 456)},
+      {new IfStmt(new LessThan(new IntLit(3), new IntLit(2)),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 456)},
       // TODO(max): Test nested if
       // TODO(max): Test if-less-than
       {nullptr, State{}},
