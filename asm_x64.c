@@ -25,6 +25,24 @@ enum Cond {
     LE = NG, GE = NL, BE = NA, AE = NB,
 };
 
+#define FOREACH_COND(V) \
+  V(O)\
+  V(B)\
+  V(E)\
+  V(A)\
+  V(S)\
+  V(P)\
+  V(L)\
+  V(G)
+
+// NB: order is wrong for A/NA. not sure if that's a fault in the original or
+// in x86?
+const char *kCondName[] = {
+#define STR(name) #name, "N" #name,
+  FOREACH_COND(STR)
+#undef STR
+};
+
 enum Mode {
     INDIRECT, INDIRECT_DISP8, INDIRECT_DISP32, DIRECT
 };
