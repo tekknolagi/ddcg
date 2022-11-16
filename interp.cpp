@@ -232,10 +232,10 @@ void plug(Destination dest, ControlDestination cdest, Imm imm) {
     }
   }
   // TODO(max): Simplify by const folding
-  mov_reg_imm(RBX, imm.value);
-  cmp_reg_imm(RBX, 0);
-  cdest.alt->ref(jmp_if(E, 0));
-  cdest.cons->ref(jmp(0));
+  // mov_reg_imm(RBX, imm.value);
+  // cmp_reg_imm(RBX, 0);
+  // cdest.alt->ref(jmp_if(E, 0));
+  // cdest.cons->ref(jmp(0));
 }
 
 void plug(Destination dest, ControlDestination cdest, Reg reg) {
@@ -252,9 +252,9 @@ void plug(Destination dest, ControlDestination cdest, Reg reg) {
       break;
     }
   }
-  cmp_reg_imm(reg, 0);
-  cdest.alt->ref(jmp_if(E, 0));
-  cdest.cons->ref(jmp(0));
+  // cmp_reg_imm(reg, 0);
+  // cdest.alt->ref(jmp_if(E, 0));
+  // cdest.cons->ref(jmp(0));
 }
 
 void plug(Destination dest, ControlDestination cdest, Mem mem) {
@@ -263,21 +263,22 @@ void plug(Destination dest, ControlDestination cdest, Mem mem) {
     case Destination::kStack: {
       mov_reg_mem(tmp, mem);
       push_reg(tmp);
-      cmp_reg_imm(tmp, 0);
+      // cmp_reg_imm(tmp, 0);
       break;
     }
     case Destination::kAccumulator: {
       mov_reg_mem(RAX, mem);
-      cmp_reg_imm(RAX, 0);
+      // cmp_reg_imm(RAX, 0);
       break;
     }
     case Destination::kNowhere: {
-      cmp_mem_imm(mem, 0);
+      // cmp_mem_imm(mem, 0);
       break;
     }
   }
-  cdest.alt->ref(jmp_if(E, 0));
-  cdest.cons->ref(jmp(0));
+  // cmp_mem_imm(mem, 0);
+  // cdest.alt->ref(jmp_if(E, 0));
+  // cdest.cons->ref(jmp(0));
 }
 
 void compile_expr(const Expr* expr, Destination dest,
