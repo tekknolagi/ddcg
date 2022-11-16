@@ -4,11 +4,13 @@
 #include <sys/mman.h> /* for mmap and friends */
 #include <unistd.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
 
 #include "dis/assembler-x64.h"
+#include "dis/dcheck.h"
 
 using namespace dis;
 using namespace dis::x64;
@@ -376,7 +378,8 @@ MemoryRegion finalizeCode(Assembler* as) {
 
 void unmapCode(MemoryRegion region) {
   int munmap_result = ::munmap(region.pointer(), region.size());
-  assert(munmap_result == 0 && "munmap failed");
+  DCHECK(munmap_result == 0, "munmap(%p) failed: %s", region.pointer(),
+         ::strerror(errno));
 }
 
 // use passed-in vars as base pointer for locals (RDI)
