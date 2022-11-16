@@ -9,10 +9,7 @@
 #include <vector>
 
 #include "asm_x64.c"
-#include "log.h"
 
-#undef LOG
-#define LOG(...)
 
 enum class ExprType {
   kIntLit,
@@ -199,21 +196,17 @@ void plug(Destination dest, ControlDestination cdest, Cond cond) {
       break;
     }
     case Destination::kAccumulator: {
-      LOG("plug acc thing\t\t\t!!!");
       Label materialize_true;
       materialize_true.ref(jmp_if(cond, 0));
       mov_reg_imm(RAX, 0);
       cdest.alt->ref(jmp(0));
-      LOG("  materialize_true:");
       materialize_true.bind();
       mov_reg_imm(RAX, 1);
       cdest.cons->ref(jmp(0));
       break;
     }
     case Destination::kNowhere: {
-      LOG("J%s true", kCondName[cond]);
       cdest.cons->ref(jmp_if(cond, 0));
-      LOG("jmp false");
       cdest.alt->ref(jmp(0));
       break;
     }
@@ -224,12 +217,10 @@ void plug(Destination dest, ControlDestination cdest, Imm imm) {
   // fprintf(stderr, "plug(dest, cdest, imm)\n");
   switch (dest) {
     case Destination::kStack: {
-      LOG("push %d", imm.value);
       push_imm(imm.value);
       break;
     }
     case Destination::kAccumulator: {
-      LOG("mov rax, %d", imm.value);
       mov_reg_imm(RAX, imm.value);
       break;
     }
@@ -237,10 +228,8 @@ void plug(Destination dest, ControlDestination cdest, Imm imm) {
       // Nothing to do; not supposed to be materialized anywhere. Likely from
       // an ExprStmt.
       if (imm.value) {
-        LOG("jmp true");
         cdest.cons->ref(jmp(0));
       } else {
-        LOG("jmp false");
         cdest.alt->ref(jmp(0));
       }
       break;
@@ -253,7 +242,6 @@ void plug(Destination dest, ControlDestination cdest, Reg reg) {
   switch (dest) {
     case Destination::kStack: {
       assert(false);
-      LOG("push rax");
       push_reg(reg);
       break;
     }
@@ -265,11 +253,8 @@ void plug(Destination dest, ControlDestination cdest, Reg reg) {
     }
     case Destination::kNowhere: {
       assert(reg == RAX);
-      LOG("cmp rax, 0");
       cmp_reg_imm(reg, 0);
-      LOG("je false");
       cdest.alt->ref(jmp_if(E, 0));
-      LOG("jmp true");
       cdest.cons->ref(jmp(0));
       break;
     }
@@ -287,7 +272,6 @@ void plug(Destination dest, ControlDestination cdest, Mem mem) {
       break;
     }
     case Destination::kAccumulator: {
-      LOG("mov rax, mem");
       mov_reg_mem(RAX, mem);
       break;
     }
@@ -310,9 +294,7 @@ void compile_expr(const Expr* expr, Destination dest,
       auto add = reinterpret_cast<const AddExpr*>(expr);
       compile_expr(add->left, Destination::kStack, cdest);
       compile_expr(add->right, Destination::kAccumulator, cdest);
-      LOG("pop rbx");
       pop_reg(RBX);
-      LOG("add rax, rbx");
       add_reg_reg(RAX, RBX);
       plug(dest, cdest, RAX);
       break;
@@ -325,7 +307,6 @@ void compile_expr(const Expr* expr, Destination dest,
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
       compile_expr(assign->right, Destination::kAccumulator, cdest);
-      LOG("mov vars[%d], rax", assign->left->offset);
       mov_mem_reg(var_at(assign->left->offset), RAX);
       plug(dest, cdest, RAX);
       break;
@@ -334,9 +315,7 @@ void compile_expr(const Expr* expr, Destination dest,
       auto less = reinterpret_cast<const LessThan*>(expr);
       compile_expr(less->left, Destination::kStack, cdest);
       compile_expr(less->right, Destination::kAccumulator, cdest);
-      LOG("pop rbx");
       pop_reg(RBX);
-      LOG("cmp rbx, rax");
       cmp_reg_reg(RBX, RAX);
       plug(dest, cdest, L);
       break;
@@ -372,17 +351,13 @@ void compile_stmt(const Stmt* stmt, ControlDestination cdest) {
                    ControlDestination(&cons, &alt));
       // true:
       cons.bind();
-      LOG("  true:");
       compile_stmt(if_->cons, cdest);
       Label exit;
-      LOG("jmp exit");
       exit.ref(jmp(0));
       // false:
-      LOG("  false:");
       alt.bind();
       compile_stmt(if_->alt, cdest);
       // exit:
-      LOG("  exit:");
       exit.bind();
       break;
     }
