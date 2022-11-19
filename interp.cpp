@@ -385,13 +385,9 @@ int jit_expr(State* state, const Expr* expr) {
   as.movq(RBP, RSP);
   as.subq(RSP, Immediate(kNumVars));
   // emit expr
-  {
-    // Need a new scope so labels get bound before codegen time.
-    Label next;
-    compile_expr(&as, expr, Destination::kAccumulator,
-                 ControlDestination(&next));
-    as.bind(&next);
-  }
+  Label next;
+  compile_expr(&as, expr, Destination::kAccumulator, ControlDestination(&next));
+  as.bind(&next);
   // emit epilogue
   as.movq(RSP, RBP);
   as.popq(RBP);
@@ -411,12 +407,9 @@ void jit_stmt(State* state, const Stmt* stmt) {
   as.movq(RBP, RSP);
   as.subq(RSP, Immediate(kNumVars));
   // emit expr
-  {
-    // Need a new scope so labels get bound before codegen time.
-    Label next;
-    compile_stmt(&as, stmt, ControlDestination(&next));
-    as.bind(&next);
-  }
+  Label next;
+  compile_stmt(&as, stmt, ControlDestination(&next));
+  as.bind(&next);
   // emit epilogue
   as.movq(RSP, RBP);
   as.popq(RBP);
