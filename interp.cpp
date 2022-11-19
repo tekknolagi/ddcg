@@ -133,8 +133,8 @@ int interpret_expr(State* state, const Expr* expr) {
       return left < right;
     }
     default: {
-      std::fprintf(stderr, "unsupported expr type\n");
-      std::abort();
+      UNREACHABLE("unsupported expr type");
+      break;
     }
   }
 }
@@ -169,7 +169,6 @@ struct ControlDestination {
 
 void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Condition cond) {
-  // fprintf(stderr, "plug(dest, cdest, cond)\n");
   switch (dest) {
     case Destination::kStack: {
       assert(false && "TODO: implement plug(stack, cond)");
@@ -195,7 +194,6 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
 
 void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Immediate imm) {
-  // fprintf(stderr, "plug(dest, cdest, imm)\n");
   switch (dest) {
     case Destination::kStack: {
       __ pushq(imm);
@@ -220,7 +218,6 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
 
 void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Register reg) {
-  // fprintf(stderr, "plug(dest, cdest, reg)\n");
   switch (dest) {
     case Destination::kStack: {
       assert(false);
@@ -245,7 +242,6 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
 
 void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Address mem) {
-  // fprintf(stderr, "plug(dest, cdest, mem)\n");
   Register tmp = RBX;
   switch (dest) {
     case Destination::kStack: {
@@ -304,8 +300,8 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
       break;
     }
     default: {
-      std::fprintf(stderr, "unsupported expr type\n");
-      std::abort();
+      UNREACHABLE("unsupported expr type");
+      break;
     }
   }
 }
@@ -345,8 +341,8 @@ void compile_stmt(Assembler* as, const Stmt* stmt, ControlDestination cdest) {
       break;
     }
     default: {
-      std::fprintf(stderr, "unsupported stmt type\n");
-      std::abort();
+      UNREACHABLE("unsupported stmt type");
+      break;
     }
   }
 }
@@ -444,8 +440,8 @@ void interpret_stmt(State* state, const Stmt* stmt) {
       break;
     }
     default: {
-      std::fprintf(stderr, "unsupported stmt type\n");
-      std::abort();
+      UNREACHABLE("unsupported stmt type");
+      break;
     }
   }
 }
