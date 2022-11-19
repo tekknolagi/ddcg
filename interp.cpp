@@ -355,13 +355,6 @@ void compile_stmt(Assembler* as, const Stmt* stmt, ControlDestination cdest) {
 typedef int (*JitFunction)(int* vars);
 
 int jit_expr(State* state, const Expr* expr) {
-  const int kProgramSize = getpagesize();  // should be enough
-  void* memory = ::mmap(/*addr=*/nullptr, /*length=*/kProgramSize,
-                        /*prot=*/PROT_READ | PROT_WRITE,
-                        /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
-                        /*filedes=*/-1, /*offset=*/0);
-  assert(memory != MAP_FAILED && "mmap failed");
-
   Assembler as;
   // emit prologue
   as.pushq(RBP);
@@ -380,23 +373,24 @@ int jit_expr(State* state, const Expr* expr) {
   as.popq(RBP);
   as.ret();
 
-  int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
+  word code_size = Utils::roundUp(as.codeSize(), getpagesize());
+  void* code = ::mmap(/*addr=*/nullptr, /*length=*/code_size,
+                      /*prot=*/PROT_READ | PROT_WRITE,
+                      /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
+                      /*filedes=*/-1, /*offset=*/0);
+  assert(code != MAP_FAILED && "mmap failed");
+  as.finalizeInstructions(MemoryRegion(code, code_size));
+  int mprotect_result = ::mprotect(code, code_size, PROT_EXEC);
+
   assert(mprotect_result == 0 && "mprotect failed");
-  JitFunction function = *(JitFunction*)&memory;
+  JitFunction function = *(JitFunction*)&code;
   int result = function(state->vars);
-  int munmap_result = ::munmap(memory, kProgramSize);
+  int munmap_result = ::munmap(code, code_size);
   assert(munmap_result == 0 && "munmap failed");
   return result;
 }
 
 void jit_stmt(State* state, const Stmt* stmt) {
-  const int kProgramSize = getpagesize();  // should be enough
-  void* memory = ::mmap(/*addr=*/nullptr, /*length=*/kProgramSize,
-                        /*prot=*/PROT_READ | PROT_WRITE,
-                        /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
-                        /*filedes=*/-1, /*offset=*/0);
-  assert(memory != MAP_FAILED && "mmap failed");
-
   Assembler as;
   // emit prologue
   as.pushq(RBP);
@@ -414,13 +408,20 @@ void jit_stmt(State* state, const Stmt* stmt) {
   as.popq(RBP);
   as.ret();
 
-  int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
+  word code_size = Utils::roundUp(as.codeSize(), getpagesize());
+  void* code = ::mmap(/*addr=*/nullptr, /*length=*/code_size,
+                      /*prot=*/PROT_READ | PROT_WRITE,
+                      /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
+                      /*filedes=*/-1, /*offset=*/0);
+  assert(code != MAP_FAILED && "mmap failed");
+  as.finalizeInstructions(MemoryRegion(code, code_size));
+  int mprotect_result = ::mprotect(code, code_size, PROT_EXEC);
+
   assert(mprotect_result == 0 && "mprotect failed");
-  JitFunction function = *(JitFunction*)&memory;
+  JitFunction function = *(JitFunction*)&code;
   function(state->vars);
-  int munmap_result = ::munmap(memory, kProgramSize);
+  int munmap_result = ::munmap(code, code_size);
   assert(munmap_result == 0 && "munmap failed");
-  return;
 }
 
 void interpret_stmt(State* state, const Stmt* stmt) {
