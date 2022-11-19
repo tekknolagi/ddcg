@@ -128,7 +128,7 @@ class AssemblerBuffer {
   template <typename T>
   void emit(T value) {
     DCHECK(hasEnsuredCapacity(), "assert()");
-    *reinterpret_cast<T*>(cursor_) = value;
+    std::memcpy(reinterpret_cast<void*>(cursor_), &value, sizeof(T));
     cursor_ += sizeof(T);
   }
 
