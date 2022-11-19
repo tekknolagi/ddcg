@@ -300,4 +300,4 @@ class CodeComments {
   DISALLOW_COPY_AND_ASSIGN(CodeComments);
 };
 
-}
+}  // namespace dis
