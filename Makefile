@@ -2,7 +2,7 @@ CXX=clang++
 
 all: interp
 
-interp: interp.o dis.so
+interp: interp.o dis.so | *.h
 	$(CXX) $(CXXFLAGS) -rpath . $^ -o $@ $(LDFLAGS)
 
 dis.so: dis/disassembler.cpp dis/disassembler-x64.cpp dis/memory-region.cpp dis/dcheck.c | dis/*.h
