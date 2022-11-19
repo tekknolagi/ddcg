@@ -357,6 +357,7 @@ void emitPrologue(Assembler* as) {
   __ subq(RSP, Immediate(kNumVars));
 }
 
+// TODO(max): Fix camelCase vs snake_case naming conventions in this file
 void emitEpilogue(Assembler* as) {
   __ movq(RSP, RBP);
   __ popq(RBP);
