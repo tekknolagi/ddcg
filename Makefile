@@ -4,7 +4,13 @@ CXXFLAGS+=-std=c++11
 # If on an M1, M2, or other new Apple Silicon, you have to both compile and run
 # using the "arch" tool so that both the final binary and the JIT-compiled code
 # can run in x86_64 mode.
-# COMPILEPREFIX=arch -x86_64
+UNAME_S:=$(shell uname -s)
+UNAME_M:=$(shell uname -m)
+ifeq ($(UNAME_S),Darwin)
+	ifeq ($(UNAME_M),arm64)
+		COMPILEPREFIX=arch -x86_64
+	endif
+endif
 
 all: interp
 
