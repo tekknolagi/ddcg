@@ -561,7 +561,6 @@ int main() {
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
        State{}.set(0, 456)},
       // TODO(max): Test nested if
-      // TODO(max): Test if-less-than
       {nullptr, State{}},
   };
   fprintf(stderr, "Testing interpreter (expr) ");
@@ -572,15 +571,4 @@ int main() {
   test_interp(stmt_tests, interpret_stmt);
   fprintf(stderr, "Testing jit (stmt) ");
   test_interp(stmt_tests, jit_stmt);
-  // State state;
-  // // Stmt* stmt = new IfStmt(new IntLit(0),
-  // //                 new ExprStmt(new VarAssign(new VarRef(0), new
-  // IntLit(123))),
-  // //                 new ExprStmt(new VarAssign(new VarRef(0), new
-  // IntLit(456)))); Stmt* stmt = new IfStmt(new LessThan(new IntLit(1), new
-  // IntLit(2)),
-  //                 new ExprStmt(new VarAssign(new VarRef(0), new
-  //                 IntLit(123))), new ExprStmt(new VarAssign(new VarRef(0),
-  //                 new IntLit(456))));
-  // jit_stmt(&state, stmt);
 }
