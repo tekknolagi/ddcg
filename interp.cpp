@@ -173,7 +173,7 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Condition cond) {
   switch (dest) {
     case Destination::kStack: {
-      assert(false && "TODO: implement plug(stack, cond)");
+      UNREACHABLE("TODO(max): implement plug(stack, cond)");
       break;
     }
     case Destination::kAccumulator: {
@@ -222,18 +222,17 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Register reg) {
   switch (dest) {
     case Destination::kStack: {
-      assert(false);
+      UNREACHABLE("TODO(max): see how to generate this code");
       __ pushq(reg);
       break;
     }
     case Destination::kAccumulator: {
       // Nothing to do; reg already in RAX or it's not supposed to materialize
       // anywhere
-      assert(reg == RAX);
+      DCHECK(reg == RAX, "expect RAX to be accumulator");
       break;
     }
     case Destination::kNowhere: {
-      assert(reg == RAX);
       __ cmpq(reg, Immediate(0));
       __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
       __ jmp(cdest.cons, Assembler::kNearJump);
@@ -247,7 +246,7 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
   Register tmp = RBX;
   switch (dest) {
     case Destination::kStack: {
-      assert(false);
+      UNREACHABLE("TODO(max): see how to generate this code");
       __ movq(tmp, mem);
       __ pushq(tmp);
       break;
@@ -257,7 +256,7 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
       break;
     }
     case Destination::kNowhere: {
-      assert(false);
+      UNREACHABLE("TODO(max): see how to generate this code");
       break;
     }
   }
@@ -368,11 +367,11 @@ MemoryRegion finalizeCode(Assembler* as) {
                       /*prot=*/PROT_READ | PROT_WRITE,
                       /*flags=*/MAP_ANONYMOUS | MAP_PRIVATE,
                       /*filedes=*/-1, /*offset=*/0);
-  assert(code != MAP_FAILED && "mmap failed");
+  DCHECK(code != MAP_FAILED, "mmap failed: %s", ::strerror(errno));
   MemoryRegion result(code, code_size);
   as->finalizeInstructions(result);
   int mprotect_result = ::mprotect(code, code_size, PROT_EXEC);
-  assert(mprotect_result == 0 && "mprotect failed");
+  DCHECK(mprotect_result == 0, "mprotect failed: %s", ::strerror(errno));
   return result;
 }
 
