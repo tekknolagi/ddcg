@@ -8,7 +8,10 @@
 #include <cstdlib>
 #include <vector>
 
-#include "asm_x64.c"
+#include "dis/assembler-x64.h"
+
+using namespace dis;
+using namespace dis::x64;
 
 enum class ExprType {
   kIntLit,
@@ -136,8 +139,10 @@ int interpret_expr(State* state, const Expr* expr) {
   }
 }
 
-Mem var_at(int offset) {
-  return base_disp(RDI, offset * sizeof(State{}.vars[0]));
+#define __ as->
+
+Address var_at(int index) {
+  return Address(RDI, index * sizeof(State{}.vars[0]));
 }
 
 enum class Destination {
@@ -145,32 +150,6 @@ enum class Destination {
   kAccumulator,
   kNowhere,
 };
-
-struct Label {
-  ~Label() { patch(); }
-  void bind() {
-    assert(!is_bound());
-    loc = here;
-  }
-  bool is_bound() const { return loc != nullptr; }
-  void ref(uint32_t* ref) { refs.push_back(ref); }
-  void patch() {
-    assert(is_bound());
-    for (uint32_t* ref : refs) {
-      patch_rel(ref, loc);
-    }
-  }
-  // TODO(max): Add support for emitting jmp/jmp_if from label directly to
-  // avoid the weird ref(jmp(...)) dance
-  uint8_t* loc{nullptr};
-  std::vector<uint32_t*> refs;
-};
-
-void jmp(Label* label) { label->ref(jmp(static_cast<uint8_t*>(0))); }
-
-void jmp_if(Cond cond, Label* label) {
-  label->ref(jmp_if(cond, static_cast<uint8_t*>(0)));
-}
 
 enum class ControlDestinationType {
   kRegister,
@@ -183,17 +162,13 @@ struct ControlDestination {
   static ControlDestination nowhere() {
     return ControlDestination(nullptr, nullptr);
   }
-  Reg reg;
+  Register reg{kNoRegister};
   Label* cons;
   Label* alt;
 };
 
-struct Imm {
-  explicit Imm(int value) : value(value) {}
-  int value;
-};
-
-void plug(Destination dest, ControlDestination cdest, Cond cond) {
+void plug(Assembler* as, Destination dest, ControlDestination cdest,
+          Condition cond) {
   // fprintf(stderr, "plug(dest, cdest, cond)\n");
   switch (dest) {
     case Destination::kStack: {
@@ -202,52 +177,54 @@ void plug(Destination dest, ControlDestination cdest, Cond cond) {
     }
     case Destination::kAccumulator: {
       Label materialize_true;
-      jmp_if(cond, &materialize_true);
-      mov_reg_imm(RAX, 0);
-      jmp(cdest.alt);
-      materialize_true.bind();
-      mov_reg_imm(RAX, 1);
-      jmp(cdest.cons);
+      __ jcc(cond, &materialize_true, Assembler::kNearJump);
+      __ movq(RAX, Immediate(0));
+      __ jmp(cdest.alt, Assembler::kNearJump);
+      __ bind(&materialize_true);
+      __ movq(RAX, Immediate(1));
+      __ jmp(cdest.cons, Assembler::kNearJump);
       break;
     }
     case Destination::kNowhere: {
-      jmp_if(cond, cdest.cons);
-      jmp(cdest.alt);
+      __ jcc(cond, cdest.cons, Assembler::kNearJump);
+      __ jmp(cdest.alt, Assembler::kNearJump);
       break;
     }
   }
 }
 
-void plug(Destination dest, ControlDestination cdest, Imm imm) {
+void plug(Assembler* as, Destination dest, ControlDestination cdest,
+          Immediate imm) {
   // fprintf(stderr, "plug(dest, cdest, imm)\n");
   switch (dest) {
     case Destination::kStack: {
-      push_imm(imm.value);
+      __ pushq(imm);
       break;
     }
     case Destination::kAccumulator: {
-      mov_reg_imm(RAX, imm.value);
+      __ movq(RAX, imm);
       break;
     }
     case Destination::kNowhere: {
       // Nothing to do; not supposed to be materialized anywhere. Likely from
       // an ExprStmt.
-      if (imm.value) {
-        jmp(cdest.cons);
+      if (imm.value()) {
+        __ jmp(cdest.cons, Assembler::kNearJump);
       } else {
-        jmp(cdest.alt);
+        __ jmp(cdest.alt, Assembler::kNearJump);
       }
       break;
     }
   }
 }
 
-void plug(Destination dest, ControlDestination cdest, Reg reg) {
+void plug(Assembler* as, Destination dest, ControlDestination cdest,
+          Register reg) {
   // fprintf(stderr, "plug(dest, cdest, reg)\n");
   switch (dest) {
     case Destination::kStack: {
       assert(false);
-      push_reg(reg);
+      __ pushq(reg);
       break;
     }
     case Destination::kAccumulator: {
@@ -258,26 +235,27 @@ void plug(Destination dest, ControlDestination cdest, Reg reg) {
     }
     case Destination::kNowhere: {
       assert(reg == RAX);
-      cmp_reg_imm(reg, 0);
-      jmp_if(E, cdest.alt);
-      jmp(cdest.cons);
+      __ cmpq(reg, Immediate(0));
+      __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
+      __ jmp(cdest.cons, Assembler::kNearJump);
       break;
     }
   }
 }
 
-void plug(Destination dest, ControlDestination cdest, Mem mem) {
+void plug(Assembler* as, Destination dest, ControlDestination cdest,
+          Address mem) {
   // fprintf(stderr, "plug(dest, cdest, mem)\n");
-  Reg tmp = RBX;
+  Register tmp = RBX;
   switch (dest) {
     case Destination::kStack: {
       assert(false);
-      mov_reg_mem(tmp, mem);
-      push_reg(tmp);
+      __ movq(tmp, mem);
+      __ pushq(tmp);
       break;
     }
     case Destination::kAccumulator: {
-      mov_reg_mem(RAX, mem);
+      __ movq(RAX, mem);
       break;
     }
     case Destination::kNowhere: {
@@ -287,42 +265,42 @@ void plug(Destination dest, ControlDestination cdest, Mem mem) {
   }
 }
 
-void compile_expr(const Expr* expr, Destination dest,
+void compile_expr(Assembler* as, const Expr* expr, Destination dest,
                   ControlDestination cdest) {
   switch (expr->type) {
     case ExprType::kIntLit: {
       int value = reinterpret_cast<const IntLit*>(expr)->value;
-      plug(dest, cdest, Imm(value));
+      plug(as, dest, cdest, Immediate(value));
       break;
     }
     case ExprType::kAddExpr: {
       auto add = reinterpret_cast<const AddExpr*>(expr);
-      compile_expr(add->left, Destination::kStack, cdest);
-      compile_expr(add->right, Destination::kAccumulator, cdest);
-      pop_reg(RBX);
-      add_reg_reg(RAX, RBX);
-      plug(dest, cdest, RAX);
+      compile_expr(as, add->left, Destination::kStack, cdest);
+      compile_expr(as, add->right, Destination::kAccumulator, cdest);
+      __ popq(RBX);
+      __ addq(RAX, RBX);
+      plug(as, dest, cdest, RAX);
       break;
     }
     case ExprType::kVarRef: {
       int offset = reinterpret_cast<const VarRef*>(expr)->offset;
-      plug(dest, cdest, var_at(offset));
+      plug(as, dest, cdest, var_at(offset));
       break;
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
-      compile_expr(assign->right, Destination::kAccumulator, cdest);
-      mov_mem_reg(var_at(assign->left->offset), RAX);
-      plug(dest, cdest, RAX);
+      compile_expr(as, assign->right, Destination::kAccumulator, cdest);
+      __ movq(var_at(assign->left->offset), RAX);
+      plug(as, dest, cdest, RAX);
       break;
     }
     case ExprType::kLessThan: {
       auto less = reinterpret_cast<const LessThan*>(expr);
-      compile_expr(less->left, Destination::kStack, cdest);
-      compile_expr(less->right, Destination::kAccumulator, cdest);
-      pop_reg(RBX);
-      cmp_reg_reg(RBX, RAX);
-      plug(dest, cdest, L);
+      compile_expr(as, less->left, Destination::kStack, cdest);
+      compile_expr(as, less->right, Destination::kAccumulator, cdest);
+      __ popq(RBX);
+      __ cmpq(RBX, RAX);
+      plug(as, dest, cdest, LESS);
       break;
     }
     default: {
@@ -332,10 +310,10 @@ void compile_expr(const Expr* expr, Destination dest,
   }
 }
 
-void compile_stmt(const Stmt* stmt, ControlDestination cdest) {
+void compile_stmt(Assembler* as, const Stmt* stmt, ControlDestination cdest) {
   switch (stmt->type) {
     case StmtType::kExpr: {
-      compile_expr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
+      compile_expr(as, reinterpret_cast<const ExprStmt*>(stmt)->expr,
                    Destination::kNowhere, cdest);
       break;
     }
@@ -343,8 +321,8 @@ void compile_stmt(const Stmt* stmt, ControlDestination cdest) {
       auto block = reinterpret_cast<const BlockStmt*>(stmt);
       for (size_t i = 0; i < block->body.size(); i++) {
         Label next;
-        compile_stmt(block->body[i], ControlDestination(&next, &next));
-        next.bind();
+        compile_stmt(as, block->body[i], ControlDestination(&next, &next));
+        __ bind(&next);
       }
       break;
     }
@@ -352,18 +330,18 @@ void compile_stmt(const Stmt* stmt, ControlDestination cdest) {
       auto if_ = reinterpret_cast<const IfStmt*>(stmt);
       Label cons;
       Label alt;
-      compile_expr(if_->cond, Destination::kNowhere,
+      compile_expr(as, if_->cond, Destination::kNowhere,
                    ControlDestination(&cons, &alt));
       // true:
-      cons.bind();
-      compile_stmt(if_->cons, cdest);
+      __ bind(&cons);
+      compile_stmt(as, if_->cons, cdest);
       Label exit;
-      jmp(&exit);
+      __ jmp(&exit, Assembler::kNearJump);
       // false:
-      alt.bind();
-      compile_stmt(if_->alt, cdest);
+      __ bind(&alt);
+      compile_stmt(as, if_->alt, cdest);
       // exit:
-      exit.bind();
+      __ bind(&exit);
       break;
     }
     default: {
@@ -384,22 +362,23 @@ int jit_expr(State* state, const Expr* expr) {
                         /*filedes=*/-1, /*offset=*/0);
   assert(memory != MAP_FAILED && "mmap failed");
 
-  here = reinterpret_cast<uint8_t*>(memory);
+  Assembler as;
   // emit prologue
-  push_reg(RBP);
-  mov_reg_reg(RBP, RSP);
-  sub_reg_imm(RSP, kNumVars);
+  as.pushq(RBP);
+  as.movq(RBP, RSP);
+  as.subq(RSP, Immediate(kNumVars));
   // emit expr
   {
     // Need a new scope so labels get bound before codegen time.
     Label next;
-    compile_expr(expr, Destination::kAccumulator, ControlDestination(&next));
-    next.bind();
+    compile_expr(&as, expr, Destination::kAccumulator,
+                 ControlDestination(&next));
+    as.bind(&next);
   }
   // emit epilogue
-  mov_reg_reg(RSP, RBP);
-  pop_reg(RBP);
-  ret();
+  as.movq(RSP, RBP);
+  as.popq(RBP);
+  as.ret();
 
   int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
   assert(mprotect_result == 0 && "mprotect failed");
@@ -418,22 +397,22 @@ void jit_stmt(State* state, const Stmt* stmt) {
                         /*filedes=*/-1, /*offset=*/0);
   assert(memory != MAP_FAILED && "mmap failed");
 
-  here = reinterpret_cast<uint8_t*>(memory);
+  Assembler as;
   // emit prologue
-  push_reg(RBP);
-  mov_reg_reg(RBP, RSP);
-  sub_reg_imm(RSP, kNumVars);
+  as.pushq(RBP);
+  as.movq(RBP, RSP);
+  as.subq(RSP, Immediate(kNumVars));
   // emit expr
   {
     // Need a new scope so labels get bound before codegen time.
     Label next;
-    compile_stmt(stmt, ControlDestination(&next));
-    next.bind();
+    compile_stmt(&as, stmt, ControlDestination(&next));
+    as.bind(&next);
   }
   // emit epilogue
-  mov_reg_reg(RSP, RBP);
-  pop_reg(RBP);
-  ret();
+  as.movq(RSP, RBP);
+  as.popq(RBP);
+  as.ret();
 
   int mprotect_result = ::mprotect(memory, kProgramSize, PROT_EXEC);
   assert(mprotect_result == 0 && "mprotect failed");
