@@ -351,6 +351,18 @@ void compile_stmt(Assembler* as, const Stmt* stmt, ControlDestination cdest) {
   }
 }
 
+void emitPrologue(Assembler* as) {
+  __ pushq(RBP);
+  __ movq(RBP, RSP);
+  __ subq(RSP, Immediate(kNumVars));
+}
+
+void emitEpilogue(Assembler* as) {
+  __ movq(RSP, RBP);
+  __ popq(RBP);
+  __ ret();
+}
+
 MemoryRegion finalizeCode(Assembler* as) {
   word code_size = Utils::roundUp(as->codeSize(), getpagesize());
   void* code = ::mmap(/*addr=*/nullptr, /*length=*/code_size,
@@ -380,18 +392,11 @@ JitFunction codeAsFunction(MemoryRegion region) {
 
 int jit_expr(State* state, const Expr* expr) {
   Assembler as;
-  // emit prologue
-  as.pushq(RBP);
-  as.movq(RBP, RSP);
-  as.subq(RSP, Immediate(kNumVars));
-  // emit expr
+  emitPrologue(&as);
   Label next;
   compile_expr(&as, expr, Destination::kAccumulator, ControlDestination(&next));
   as.bind(&next);
-  // emit epilogue
-  as.movq(RSP, RBP);
-  as.popq(RBP);
-  as.ret();
+  emitEpilogue(&as);
 
   MemoryRegion region = finalizeCode(&as);
   JitFunction function = codeAsFunction(region);
@@ -402,18 +407,11 @@ int jit_expr(State* state, const Expr* expr) {
 
 void jit_stmt(State* state, const Stmt* stmt) {
   Assembler as;
-  // emit prologue
-  as.pushq(RBP);
-  as.movq(RBP, RSP);
-  as.subq(RSP, Immediate(kNumVars));
-  // emit expr
+  emitPrologue(&as);
   Label next;
   compile_stmt(&as, stmt, ControlDestination(&next));
   as.bind(&next);
-  // emit epilogue
-  as.movq(RSP, RBP);
-  as.popq(RBP);
-  as.ret();
+  emitEpilogue(&as);
 
   MemoryRegion region = finalizeCode(&as);
   JitFunction function = codeAsFunction(region);
