@@ -141,6 +141,37 @@ int interpret_expr(State* state, const Expr* expr) {
   }
 }
 
+void interpret_stmt(State* state, const Stmt* stmt) {
+  switch (stmt->type) {
+    case StmtType::kExpr: {
+      interpret_expr(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
+      break;
+    }
+    case StmtType::kBlock: {
+      auto block = reinterpret_cast<const BlockStmt*>(stmt);
+      for (size_t i = 0; i < block->body.size(); i++) {
+        interpret_stmt(state, block->body[i]);
+      }
+      break;
+    }
+    case StmtType::kIf: {
+      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+      int result = interpret_expr(state, if_->cond);
+      if (result) {
+        interpret_stmt(state, if_->cons);
+      } else {
+        interpret_stmt(state, if_->alt);
+      }
+      break;
+    }
+    default: {
+      UNREACHABLE("unsupported stmt type");
+      break;
+    }
+  }
+}
+
+
 #define __ as->
 
 Address var_at(int index) {
@@ -418,37 +449,6 @@ void jit_stmt(State* state, const Stmt* stmt) {
   function(state->vars);
   unmapCode(region);
 }
-
-void interpret_stmt(State* state, const Stmt* stmt) {
-  switch (stmt->type) {
-    case StmtType::kExpr: {
-      interpret_expr(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
-      break;
-    }
-    case StmtType::kBlock: {
-      auto block = reinterpret_cast<const BlockStmt*>(stmt);
-      for (size_t i = 0; i < block->body.size(); i++) {
-        interpret_stmt(state, block->body[i]);
-      }
-      break;
-    }
-    case StmtType::kIf: {
-      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      int result = interpret_expr(state, if_->cond);
-      if (result) {
-        interpret_stmt(state, if_->cons);
-      } else {
-        interpret_stmt(state, if_->alt);
-      }
-      break;
-    }
-    default: {
-      UNREACHABLE("unsupported stmt type");
-      break;
-    }
-  }
-}
-
 struct ExprTest {
   State state;
   Expr* expr;
