@@ -243,7 +243,7 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
 
 void plug(Assembler* as, Destination dest, ControlDestination cdest,
           Address mem) {
-  Register tmp = RBX;
+  Register tmp = RCX;
   switch (dest) {
     case Destination::kStack: {
       UNREACHABLE("TODO(max): see how to generate this code");
@@ -274,8 +274,8 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
       auto add = reinterpret_cast<const AddExpr*>(expr);
       compile_expr(as, add->left, Destination::kStack, cdest);
       compile_expr(as, add->right, Destination::kAccumulator, cdest);
-      __ popq(RBX);
-      __ addq(RAX, RBX);
+      __ popq(RCX);
+      __ addq(RAX, RCX);
       plug(as, dest, cdest, RAX);
       break;
     }
@@ -295,8 +295,8 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
       auto less = reinterpret_cast<const LessThan*>(expr);
       compile_expr(as, less->left, Destination::kStack, cdest);
       compile_expr(as, less->right, Destination::kAccumulator, cdest);
-      __ popq(RBX);
-      __ cmpq(RBX, RAX);
+      __ popq(RCX);
+      __ cmpq(RCX, RAX);
       plug(as, dest, cdest, LESS);
       break;
     }
