@@ -264,6 +264,7 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
 
 void compile_expr(Assembler* as, const Expr* expr, Destination dest,
                   ControlDestination cdest) {
+  Register tmp = RCX;
   switch (expr->type) {
     case ExprType::kIntLit: {
       int value = reinterpret_cast<const IntLit*>(expr)->value;
@@ -274,8 +275,8 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
       auto add = reinterpret_cast<const AddExpr*>(expr);
       compile_expr(as, add->left, Destination::kStack, cdest);
       compile_expr(as, add->right, Destination::kAccumulator, cdest);
-      __ popq(RCX);
-      __ addq(RAX, RCX);
+      __ popq(tmp);
+      __ addq(RAX, tmp);
       plug(as, dest, cdest, RAX);
       break;
     }
@@ -295,8 +296,8 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
       auto less = reinterpret_cast<const LessThan*>(expr);
       compile_expr(as, less->left, Destination::kStack, cdest);
       compile_expr(as, less->right, Destination::kAccumulator, cdest);
-      __ popq(RCX);
-      __ cmpq(RCX, RAX);
+      __ popq(tmp);
+      __ cmpq(tmp, RAX);
       plug(as, dest, cdest, LESS);
       break;
     }
