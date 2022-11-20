@@ -12,6 +12,21 @@ ifeq ($(UNAME_S),Darwin)
 	endif
 endif
 
+ifneq ($(DEBUG),)
+	CFLAGS+=-g -O0
+	CXXFLAGS+=-g -O0
+endif
+
+ifneq ($(UBSAN),)
+	CFLAGS+=-fsanitize=undefined
+	CXXFLAGS+=-fsanitize=undefined
+endif
+
+ifneq ($(ASAN),)
+	CFLAGS+=-fsanitize=address
+	CXXFLAGS+=-fsanitize=address
+endif
+
 all: interp
 
 # TODO(max): Figure out how to list headers here without including them in $^
