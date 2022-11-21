@@ -29,8 +29,8 @@ struct Expr {
 };
 
 struct IntLit : public Expr {
-  explicit IntLit(int value) : Expr(ExprType::kIntLit), value(value) {}
-  int value;
+  explicit IntLit(word value) : Expr(ExprType::kIntLit), value(value) {}
+  word value;
 };
 
 struct AddExpr : public Expr {
@@ -41,8 +41,8 @@ struct AddExpr : public Expr {
 };
 
 struct VarRef : public Expr {
-  explicit VarRef(int offset) : Expr(ExprType::kVarRef), offset(offset) {}
-  int offset;
+  explicit VarRef(word offset) : Expr(ExprType::kVarRef), offset(offset) {}
+  word offset;
 };
 
 struct VarAssign : public Expr {
@@ -92,7 +92,7 @@ struct IfStmt : public Stmt {
 constexpr int kNumVars = 26;
 
 struct State {
-  State set(int offset, int value) const {
+  State set(word offset, word value) const {
     State result = *this;
     result.vars[offset] = value;
     return result;
@@ -105,18 +105,18 @@ struct State {
     }
     return true;
   }
-  int vars[kNumVars] = {};
+  word vars[kNumVars] = {};
 };
 
-int interpret_expr(State* state, const Expr* expr) {
+word interpret_expr(State* state, const Expr* expr) {
   switch (expr->type) {
     case ExprType::kIntLit: {
       return reinterpret_cast<const IntLit*>(expr)->value;
     }
     case ExprType::kAddExpr: {
       auto add = reinterpret_cast<const AddExpr*>(expr);
-      int left = interpret_expr(state, add->left);
-      int right = interpret_expr(state, add->right);
+      word left = interpret_expr(state, add->left);
+      word right = interpret_expr(state, add->right);
       return left + right;
     }
     case ExprType::kVarRef: {
@@ -124,14 +124,14 @@ int interpret_expr(State* state, const Expr* expr) {
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
-      int result = interpret_expr(state, assign->right);
+      word result = interpret_expr(state, assign->right);
       state->vars[assign->left->offset] = result;
       return result;
     }
     case ExprType::kLessThan: {
       auto less = reinterpret_cast<const LessThan*>(expr);
-      int left = interpret_expr(state, less->left);
-      int right = interpret_expr(state, less->right);
+      word left = interpret_expr(state, less->left);
+      word right = interpret_expr(state, less->right);
       return left < right;
     }
     default: {
@@ -156,7 +156,7 @@ void interpret_stmt(State* state, const Stmt* stmt) {
     }
     case StmtType::kIf: {
       auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      int result = interpret_expr(state, if_->cond);
+      word result = interpret_expr(state, if_->cond);
       if (result) {
         interpret_stmt(state, if_->cons);
       } else {
@@ -173,7 +173,7 @@ void interpret_stmt(State* state, const Stmt* stmt) {
 
 #define __ as->
 
-Address var_at(int index) {
+Address var_at(word index) {
   return Address(RDI, index * sizeof(State{}.vars[0]));
 }
 
@@ -296,7 +296,7 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
   Register tmp = RCX;
   switch (expr->type) {
     case ExprType::kIntLit: {
-      int value = reinterpret_cast<const IntLit*>(expr)->value;
+      word value = reinterpret_cast<const IntLit*>(expr)->value;
       plug(as, dest, cdest, Immediate(value));
       break;
     }
@@ -310,16 +310,14 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
       break;
     }
     case ExprType::kVarRef: {
-      int offset = reinterpret_cast<const VarRef*>(expr)->offset;
+      word offset = reinterpret_cast<const VarRef*>(expr)->offset;
       plug(as, dest, cdest, var_at(offset));
       break;
     }
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
       compile_expr(as, assign->right, Destination::kAccumulator, cdest);
-      // Variables are smaller than 64 bits. Use movl instead of movq.
-      static_assert(sizeof(State{}.vars[0]) == 4, "unexpected var size");
-      __ movl(var_at(assign->left->offset), RAX);
+      __ movq(var_at(assign->left->offset), RAX);
       plug(as, dest, cdest, RAX);
       break;
     }
@@ -414,14 +412,14 @@ void unmapCode(MemoryRegion region) {
 }
 
 // use passed-in vars as base pointer for locals (RDI)
-typedef int (*JitFunction)(int* vars);
+typedef word (*JitFunction)(word* vars);
 
 JitFunction codeAsFunction(MemoryRegion region) {
   void* code = region.pointer();
   return *(JitFunction*)&code;
 }
 
-int jit_expr(State* state, const Expr* expr) {
+word jit_expr(State* state, const Expr* expr) {
   Assembler as;
   emitPrologue(&as);
   Label next;
@@ -431,7 +429,7 @@ int jit_expr(State* state, const Expr* expr) {
 
   MemoryRegion region = finalizeCode(&as);
   JitFunction function = codeAsFunction(region);
-  int result = function(state->vars);
+  word result = function(state->vars);
   unmapCode(region);
   return result;
 }
@@ -452,7 +450,7 @@ void jit_stmt(State* state, const Stmt* stmt) {
 struct ExprTest {
   State state;
   Expr* expr;
-  int expected;
+  word expected;
 };
 
 struct StmtTest {
@@ -460,13 +458,13 @@ struct StmtTest {
   State expected;
 };
 
-typedef int ExprInterpreter(State* state, const Expr* expr);
+typedef word ExprInterpreter(State* state, const Expr* expr);
 typedef void StmtInterpreter(State* state, const Stmt* stmt);
 
 void test_interp(ExprTest tests[], ExprInterpreter interpret) {
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].expr != nullptr; i++) {
-    int result = interpret(&tests[i].state, tests[i].expr);
+    word result = interpret(&tests[i].state, tests[i].expr);
     if (result == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
