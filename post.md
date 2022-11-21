@@ -49,8 +49,8 @@ I followed along with the talk in C++. I decided to write a reference
 interpreter first to help me nail down the expression types and their expected
 behavior---and then wrote a small test suite to exercise it and find bugs. I
 didn't get so far as writing a full parser or anything[^tiger-impl], just the
-AST types. Here are the expression datatypes. They look similar enough to the
-talk:
+AST types. Here are the expression datatypes[^unique-ptr]. They look similar
+enough to the talk:
 
 [^tiger-impl]: I have half of a small [Tiger][tiger] implementation in C++
     sitting around, which includes a reasonable homemade lexer and parser. I
@@ -58,6 +58,15 @@ talk:
     end-to-end playground for this code generation style.
 
     [tiger]: https://www.cs.princeton.edu/~appel/modern/
+
+[^unique-ptr]: I initially thought about using `std::unique_ptr` to manage the
+    AST ownership here, but it kind of gets in the way of what is really just
+    an elaborate test harness. Then I thought about bump allocating the nodes,
+    since I already have a small bump allocator that I wrote for Cinder. Then I
+    realized that that bump allocator didn't work for heterogeneous types (the
+    Cinder allocator only ever allocated one type per allocator). Then I looked
+    at `std::align` for a bit and decided I didn't care so much. So here we
+    are, with a bunch of leaks. Ah well.
 
 ```c++
 enum class ExprType {
