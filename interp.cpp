@@ -171,7 +171,6 @@ void interpret_stmt(State* state, const Stmt* stmt) {
   }
 }
 
-
 #define __ as->
 
 Address var_at(int index) {
@@ -277,7 +276,6 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
   Register tmp = RCX;
   switch (dest) {
     case Destination::kStack: {
-      UNREACHABLE("TODO(max): see how to generate this code");
       __ movq(tmp, mem);
       __ pushq(tmp);
       break;
@@ -319,7 +317,9 @@ void compile_expr(Assembler* as, const Expr* expr, Destination dest,
     case ExprType::kVarAssign: {
       auto assign = reinterpret_cast<const VarAssign*>(expr);
       compile_expr(as, assign->right, Destination::kAccumulator, cdest);
-      __ movq(var_at(assign->left->offset), RAX);
+      // Variables are smaller than 64 bits. Use movl instead of movq.
+      static_assert(sizeof(State{}.vars[0]) == 4, "unexpected var size");
+      __ movl(var_at(assign->left->offset), RAX);
       plug(as, dest, cdest, RAX);
       break;
     }
@@ -555,6 +555,13 @@ int main() {
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
        State{}.set(0, 456)},
+      {new BlockStmt({
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+           new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
+           new ExprStmt(new VarAssign(
+               new VarRef(2), new AddExpr(new VarRef(0), new VarRef(1)))),
+       }),
+       State{}.set(0, 123).set(1, 456).set(2, 123 + 456)},
       // TODO(max): Test nested if
       {nullptr, State{}},
   };
