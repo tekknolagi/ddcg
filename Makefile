@@ -13,8 +13,8 @@ ifeq ($(UNAME_S),Darwin)
 endif
 
 ifneq ($(DEBUG),)
-	CFLAGS+=-g -O0
-	CXXFLAGS+=-g -O0
+	CFLAGS+=-g -O0 -gdwarf-4
+	CXXFLAGS+=-g -O0 -gdwarf-4
 endif
 
 ifneq ($(UBSAN),)
