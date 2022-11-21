@@ -116,7 +116,19 @@ struct LessThan : public Expr {
 
 It's kind of weird that variable assignment is an expression, but since it
 returns a value (the right-hand side of the assignment), I suppose it makes
-sense. That's probably how C and other languages do it too, but I am not sure.
+sense. That seems to be [how C does it][c99-spec] (PDF). According to section
+6.5.16 (page 91)[^thanks-gurity]:
+
+[c99-spec]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1256.pdf
+
+[^thanks-gurity]: Thanks, Gurity, for your
+    [StackOverflow answer](https://stackoverflow.com/a/25578647/569183).
+
+```
+assignment-expression:
+  conditional-expression
+  unary-expression assignment-operator assignment-expression
+```
 
 I also wrote some statement datatypes:
 
