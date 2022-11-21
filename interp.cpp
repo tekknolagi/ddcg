@@ -15,6 +15,9 @@
 using namespace dis;
 using namespace dis::x64;
 
+// TODO(max): Write parser
+// TODO(max): Support else-less if
+
 enum class ExprType {
   kIntLit,
   kAddExpr,
