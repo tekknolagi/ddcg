@@ -116,7 +116,7 @@ struct LessThan : public Expr {
 
 It's kind of weird that variable assignment is an expression, but since it
 returns a value (the right-hand side of the assignment), I suppose it makes
-sense.
+sense. That's probably how C and other languages do it too, but I am not sure.
 
 I also wrote some statement datatypes:
 
