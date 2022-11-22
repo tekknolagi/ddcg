@@ -50,8 +50,7 @@ I followed along with the talk in C++. I decided to write a reference
 interpreter first to help me nail down the expression types and their expected
 behavior---and then wrote a small test suite to exercise it and find bugs. I
 didn't get so far as writing a full parser or anything[^tiger-impl], just the
-AST types. Here are the expression datatypes[^unique-ptr]. They look similar
-enough to the talk:
+abstract syntax tree (AST) types[^unique-ptr]. We'll start with them.
 
 [^tiger-impl]: I have half of a small [Tiger][tiger] implementation in C++
     sitting around, which includes a reasonable homemade lexer and parser. I
@@ -68,6 +67,19 @@ enough to the talk:
     Cinder allocator only ever allocated one type per allocator). Then I looked
     at `std::align` for a bit and decided I didn't care so much. So here we
     are, with a bunch of leaks. Ah well.
+
+## Datatypes
+
+Right. Let's look at some ASTs. There are not so many, and I try to match them
+up with the types shown in the talk. There are five types of expression:
+
+* integer literal
+* integer add
+* variable load
+* variable store
+* less-than comparison
+
+and an abstract base class.
 
 ```c++
 enum class ExprType {
@@ -117,7 +129,7 @@ struct LessThan : public Expr {
 
 It's kind of weird that variable assignment is an expression, but since it
 returns a value (the right-hand side of the assignment), I suppose it makes
-sense. That seems to be [how C does it][c99-spec] (PDF). According to section
+sense. That seems to be [how C does it][c99-spec] (PDF), according to section
 6.5.16 (page 91)[^thanks-gurity]:
 
 [c99-spec]: https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1256.pdf
@@ -195,6 +207,8 @@ I didn't really want to go through and figure out how many variables were
 needed in the AST, so I fixed the number of variables at 26. I had a vague
 notion that if I were writing a little parser, I could use single-letter
 variable names and cleanly map those to indices... but that never materialized.
+
+
 
 <br />
 <hr style="width: 100px;" />
