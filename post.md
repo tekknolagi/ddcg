@@ -82,6 +82,8 @@ up with the types shown in the talk. There are five types of expression:
 and an abstract base class.
 
 ```c++
+typedef intptr_t word;
+
 enum class ExprType {
   kIntLit,
   kAddExpr,
@@ -208,6 +210,157 @@ needed in the AST, so I fixed the number of variables at 26. I had a vague
 notion that if I were writing a little parser, I could use single-letter
 variable names and cleanly map those to indices... but that never materialized.
 
+## Interpreter
+
+```c++
+word interpret_expr(State* state, const Expr* expr) {
+  switch (expr->type) {
+    case ExprType::kIntLit: {
+      return reinterpret_cast<const IntLit*>(expr)->value;
+    }
+    case ExprType::kAddExpr: {
+      auto add = reinterpret_cast<const AddExpr*>(expr);
+      word left = interpret_expr(state, add->left);
+      word right = interpret_expr(state, add->right);
+      return left + right;
+    }
+    case ExprType::kVarRef: {
+      return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
+    }
+    case ExprType::kVarAssign: {
+      auto assign = reinterpret_cast<const VarAssign*>(expr);
+      word result = interpret_expr(state, assign->right);
+      state->vars[assign->left->offset] = result;
+      return result;
+    }
+    case ExprType::kLessThan: {
+      auto less = reinterpret_cast<const LessThan*>(expr);
+      word left = interpret_expr(state, less->left);
+      word right = interpret_expr(state, less->right);
+      return left < right;
+    }
+    default: {
+      UNREACHABLE("unsupported expr type");
+      break;
+    }
+  }
+}
+
+void interpret_stmt(State* state, const Stmt* stmt) {
+  switch (stmt->type) {
+    case StmtType::kExpr: {
+      interpret_expr(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
+      break;
+    }
+    case StmtType::kBlock: {
+      auto block = reinterpret_cast<const BlockStmt*>(stmt);
+      for (size_t i = 0; i < block->body.size(); i++) {
+        interpret_stmt(state, block->body[i]);
+      }
+      break;
+    }
+    case StmtType::kIf: {
+      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+      word result = interpret_expr(state, if_->cond);
+      if (result) {
+        interpret_stmt(state, if_->cons);
+      } else {
+        interpret_stmt(state, if_->alt);
+      }
+      break;
+    }
+    default: {
+      UNREACHABLE("unsupported stmt type");
+      break;
+    }
+  }
+}
+```
+
+## Tests
+
+```c++
+int main() {
+  ExprTest expr_tests[] = {
+      {State{}, new IntLit(123), 123},
+      {State{}, new AddExpr(new IntLit(123), new IntLit(456)), 579},
+      {State{}.set(3, 123), new VarRef(3), 123},
+      {State{}, new VarAssign(new VarRef(3), new IntLit(123)), 123},
+      {State{}, new LessThan(new IntLit(1), new IntLit(2)), 1},
+      {State{}, new LessThan(new IntLit(2), new IntLit(2)), 0},
+      {State{}, new LessThan(new IntLit(3), new IntLit(2)), 0},
+      // TODO(max): Test compound conditionals
+      {State{}, nullptr, 0},
+  };
+  StmtTest stmt_tests[] = {
+      {new ExprStmt(new IntLit(123)), State{}},
+      {new ExprStmt(new VarAssign(new VarRef(3), new IntLit(123))),
+       State{}.set(3, 123)},
+      {new BlockStmt({
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+           new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
+       }),
+       State{}.set(0, 123).set(1, 456)},
+      {new IfStmt(new IntLit(1),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new IntLit(7),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new IntLit(-7),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new IntLit(0),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 456)},
+      {new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 123)},
+      {new IfStmt(new LessThan(new IntLit(2), new IntLit(2)),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 456)},
+      {new IfStmt(new LessThan(new IntLit(3), new IntLit(2)),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
+       State{}.set(0, 456)},
+      {new BlockStmt({
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+           new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
+           new ExprStmt(new VarAssign(
+               new VarRef(2), new AddExpr(new VarRef(0), new VarRef(1)))),
+       }),
+       State{}.set(0, 123).set(1, 456).set(2, 123 + 456)},
+      // TODO(max): Test nested if
+      {nullptr, State{}},
+  };
+  fprintf(stderr, "Testing interpreter (expr) ");
+  test_interp(expr_tests, interpret_expr);
+  fprintf(stderr, "Testing interpreter (stmt) ");
+  test_interp(stmt_tests, interpret_stmt);
+}
+```
+
+## Compiler
+
+### Baseline
+
+Now that we've expressed our desired behavior in the form of a test suite, we
+can change the implementation and maybe see if we've broken things. When I was
+writing the compiler, I broke a number of tests. It was really valuable to have
+a bunch of tests that exercise different combinations of expression types,
+since those can isolate compiler bugs.
+
+### Destination-driven
+
+### Add control destinations
+
+## Conclusion
 
 
 <br />
