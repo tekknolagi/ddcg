@@ -20,10 +20,11 @@ couldn't find their implementation, nor could I find any other
 implementation[^jsc] of this paper. So I decided to write one!
 
 [^jsc]: I was writing this post, I discovered Phil's
-    [implementation][https://github.com/eatonphil/jsc] of this paper in his
+    [implementation](https://github.com/eatonphil/jsc) of this paper in his
     ahead-of-time JavaScript compiler, *jsc* that compiles JS to Node C-API
-    calls. Note that this is a different `jsc` than Apple's JavaScriptCore, the
-    runtime that powers WebKit.
+    calls. Note that this is a different `jsc` than Apple's
+    [JavaScriptCore](https://github.com/WebKit/WebKit/tree/main/Source/JavaScriptCore),
+    the runtime that powers WebKit.
 
     Then I decided to look even deeper into the V8 source history for all
     commits by the author of the talk, Kevin Millikin, and eventually found
@@ -193,7 +194,7 @@ struct State {
 I didn't really want to go through and figure out how many variables were
 needed in the AST, so I fixed the number of variables at 26. I had a vague
 notion that if I were writing a little parser, I could use single-letter
-variable names and cleanly map those... but that never materialized.
+variable names and cleanly map those to indices... but that never materialized.
 
 <br />
 <hr style="width: 100px;" />
