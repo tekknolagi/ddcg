@@ -451,6 +451,9 @@ void jit_stmt(State* state, const Stmt* stmt) {
   unmapCode(region);
 }
 
+// TODO(max): Unify ExprTest and StmtTest... maybe also jit_expr and jit_stmt
+// into jit_program?
+
 struct ExprTest {
   State state;
   Expr* expr;
