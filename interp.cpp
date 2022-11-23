@@ -450,6 +450,7 @@ void jit_stmt(State* state, const Stmt* stmt) {
   function(state->vars);
   unmapCode(region);
 }
+
 struct ExprTest {
   State state;
   Expr* expr;
