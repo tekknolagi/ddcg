@@ -17,7 +17,8 @@ think I just wasn't ready for Greek letters that day.
 
 In any case, while V8 ostensibly used this strategy in their early codegen, I
 couldn't find their implementation, nor could I find any other
-implementation[^jsc] of this paper. So I decided to write one!
+implementation[^jsc] of this paper. So I decided to [write
+one](https://github.com/tekknolagi/ddcg)!
 
 [^jsc]: I was writing this post, I discovered Phil's
     [implementation](https://github.com/eatonphil/jsc) of this paper in his
@@ -145,7 +146,21 @@ assignment-expression:
   unary-expression assignment-operator assignment-expression
 ```
 
-I also wrote some statement datatypes:
+The expressions are what you might expect from a little language. For example,
+`v0 = v1 + v2` corresponds to the C++ AST
+
+```c++
+new VarAssign(new VarRef(0), new AddExpr(new VarRef(1), new VarRef(2)))
+```
+
+The statements are a little different. Unlike expressions, which return values,
+statements return no values and are only there for effect and sequencing.
+
+We have three kinds:
+
+* expression statements (`expr;`)
+* block statements (`{ a; b; }`)
+* and if-statements (`if (a) { ...} else { ... }`)
 
 ```c++
 enum class StmtType {
@@ -179,6 +194,11 @@ struct IfStmt : public Stmt {
 };
 ```
 
+I went a little terse on the variable naming: `cond` is short for "condition",
+the if-expression in the parentheses; `cons` is short for "consequent", the
+if-true case; `alt` is short for "alternate", the if-false case. I feel like I
+heard these terms first in a Lisp scenario.
+
 The talk assumes code generation, but since I am also writing an interpreter, I
 added a little data structure I call `State` that holds an array of slots for
 variables. This would normally be part of the native call frame, probably an
@@ -193,6 +213,8 @@ struct State {
     result.vars[offset] = value;
     return result;
   }
+  // operator== is used for testing only, to check for the desired variable
+  // assignment effects
   bool operator==(const State& other) {
     for (size_t i = 0; i < kNumVars; i++) {
       if (vars[i] != other.vars[i]) {
@@ -211,6 +233,9 @@ notion that if I were writing a little parser, I could use single-letter
 variable names and cleanly map those to indices... but that never materialized.
 
 ## Interpreter
+
+So! Now we have our datatypes. The interpreter is a little tree-walk
+interpreter. It takes in a `State` to mutate and an `Expr` to evaluate.
 
 ```c++
 word interpret_expr(State* state, const Expr* expr) {
@@ -245,7 +270,12 @@ word interpret_expr(State* state, const Expr* expr) {
     }
   }
 }
+```
 
+Note that `interpret_expr` returns an `int` because expressions have values.
+`interpret_stmt`, on the other hand, returns no values:
+
+```
 void interpret_stmt(State* state, const Stmt* stmt) {
   switch (stmt->type) {
     case StmtType::kExpr: {
@@ -277,7 +307,30 @@ void interpret_stmt(State* state, const Stmt* stmt) {
 }
 ```
 
+There are no compound conditionals, but if you were to add them, the
+interpreter and test suite would be a good place to specify the semantics. (Is
+`and` eager? Short-circuiting?)
+
 ## Tests
+
+Now, a good test-driven-development (TDD) practitioner would have written tests
+first and implementation second. But I am not that and I did not do that. So
+here we arrive at the tests after writing the implementation.
+
+Each expression test is comprised of a beginning `State`, an `Expr` to
+evaluate, and the expected result from evaluating the expression.
+
+```c++
+struct ExprTest {
+  State state;
+  Expr* expr;
+  word expected;
+};
+```
+
+There is a beginning state so we can test the implementation of `VarRef`
+independently of the implementation of `VarAssign`; otherwise, we would need to
+use both at the same time.
 
 ```c++
 int main() {
@@ -289,9 +342,31 @@ int main() {
       {State{}, new LessThan(new IntLit(1), new IntLit(2)), 1},
       {State{}, new LessThan(new IntLit(2), new IntLit(2)), 0},
       {State{}, new LessThan(new IntLit(3), new IntLit(2)), 0},
-      // TODO(max): Test compound conditionals
-      {State{}, nullptr, 0},
+      {State{}, nullptr, 0},  // Sentinel
   };
+  // ...
+}
+```
+
+The statement tests are similar, but simpler: each test has a `Stmt` and an
+expected end `State`. There is no beginning `State` supplied.
+
+```c++
+struct StmtTest {
+  Stmt* stmt;
+  State expected;
+};
+```
+
+I suppose we could have re-used the same test struct, since expressions can
+have side effects too. Hmm. I'll think about making this simpler later.
+
+There are some more `Stmt` tests than `Expr` because of the interactions
+between multiple statements. `IfStmt` in particular has a bunch of cases.
+
+```c++
+int main() {
+  // ...
   StmtTest stmt_tests[] = {
       {new ExprStmt(new IntLit(123)), State{}},
       {new ExprStmt(new VarAssign(new VarRef(3), new IntLit(123))),
@@ -337,8 +412,23 @@ int main() {
        }),
        State{}.set(0, 123).set(1, 456).set(2, 123 + 456)},
       // TODO(max): Test nested if
-      {nullptr, State{}},
+      {nullptr, State{}},  // Sentinel
   };
+  // ...
+}
+```
+
+Now that we have the tests, we can run them on our implementations. I made the
+test runner polymorphic from the beginning because I knew that we would have
+multiple implementations to test on the same test cases.
+
+The function `test_interp` is not very interesting (it's a for loop with a
+function call) so I have omitted it in the interest of brevity. Feel free to
+check out the implementation [in the repo](https://github.com/tekknolagi/ddcg).
+
+```c++
+int main() {
+  // ...
   fprintf(stderr, "Testing interpreter (expr) ");
   test_interp(expr_tests, interpret_expr);
   fprintf(stderr, "Testing interpreter (stmt) ");
@@ -346,7 +436,32 @@ int main() {
 }
 ```
 
+And that's it. If all went well on your end, you should see something like this
+in your terminal:
+
+```
+$ ./interp
+Testing interpreter (expr) .......
+Testing jit (expr) .......
+Testing interpreter (stmt) ...........
+Testing jit (stmt) ...........
+$
+```
+
 ## Compiler
+
+Ahhh, finally onto the real meat of the post: the compiler! We'll follow the
+talk, meaning that we'll look at three different compilers:
+
+* the baseline compiler, with very simple code generation
+* the destination-driven compiler
+* the destination-driven compiler *with control destinations*
+
+That way we can compare results across the board. We won't look at performance
+(see [my commentary](/inline-caching/#performance-analysis) on performance
+analysis, which I should probably turn into a separate post). Instead we will
+look at instruction counts as a proxy. Maybe someone more enterprising could
+also count stack spills and loads, too.
 
 ### Baseline
 
