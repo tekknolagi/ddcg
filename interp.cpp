@@ -294,6 +294,8 @@ void plug(Assembler* as, Destination dest, ControlDestination cdest,
   }
 }
 
+void compile_expr_old(Assembler* as, const Expr* expr) {}
+
 void compile_expr(Assembler* as, const Expr* expr, Destination dest,
                   ControlDestination cdest) {
   Register tmp = RCX;
@@ -422,28 +424,172 @@ JitFunction codeAsFunction(MemoryRegion region) {
   return *(JitFunction*)&code;
 }
 
-word jit_expr(State* state, const Expr* expr) {
+class Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) = 0;
+  virtual void interpret(State* state, const Stmt* stmt) = 0;
+};
+
+class Interpreter : public Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) {
+    return interpret_expr(state, expr);
+  }
+  virtual void interpret(State* state, const Stmt* stmt) {
+    interpret_stmt(state, stmt);
+  }
+};
+
+class JIT : public Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) {
+    Assembler as;
+    emitPrologue(&as);
+    Label next;
+    compileExpr(expr);
+    as.popq(RAX);
+    as.bind(&next);
+    emitEpilogue(&as);
+    MemoryRegion region = finalizeCode(&as);
+    JitFunction function = codeAsFunction(region);
+    word result = function(state->vars);
+    unmapCode(region);
+    return result;
+  }
+  virtual void interpret(State* state, const Stmt* stmt) {
+    interpret_stmt(state, stmt);
+  }
+  virtual void emitPrologue() {
+    as.pushq(RBP);
+    as.movq(RBP, RSP);
+    as.subq(RSP, Immediate(kNumVars));
+  }
+  virtual void emitEpilogue() {
+    as.movq(RSP, RBP);
+    as.popq(RBP);
+    as.ret();
+  }
+  word codeSize() const { return as.codeSize(); }
+  virtual void compileExpr(const Expr* expr) = 0;
+  virtual void compileStmt(const Stmt* stmt) = 0;
+
+ protected:
   Assembler as;
-  emitPrologue(&as);
-  Label next;
-  compile_expr(&as, expr, Destination::kAccumulator, ControlDestination(&next));
-  as.bind(&next);
-  emitEpilogue(&as);
+};
 
-  MemoryRegion region = finalizeCode(&as);
-  JitFunction function = codeAsFunction(region);
-  word result = function(state->vars);
-  unmapCode(region);
-  return result;
-}
+class BaselineJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        word value = reinterpret_cast<const IntLit*>(expr)->value;
+        __ pushq(Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = reinterpret_cast<const AddExpr*>(expr);
+        compileExpr(add->left);
+        compileExpr(add->right);
+        __ popq(tmp);
+        __ popq(RAX);
+        __ addq(RAX, tmp);
+        __ pushq(RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        int offset = reinterpret_cast<const VarRef*>(expr)->offset;
+        __ movq(RAX, var_at(offset));
+        __ pushq(RAX);
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        compileExpr(assign->right);
+        __ movq(RAX, Address(RSP));
+        __ movq(var_at(assign->left->offset), RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = reinterpret_cast<const LessThan*>(expr);
+        compileExpr(less->left);
+        compileExpr(less->right);
+        __ popq(tmp);
+        __ popq(RAX);
+        __ subq(RAX, tmp);
+        __ movq(RAX, Immediate(0));
+        __ setcc(LESS, RAX);
+        __ pushq(RAX);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+  virtual void emitEpilogue() {
+    as.popq(RAX);
+    JIT::emitEpilogue(this);
+  }
+};
 
-void jit_stmt(State* state, const Stmt* stmt) {
+class DestinationDrivenJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        word value = reinterpret_cast<const IntLit*>(expr)->value;
+        plug(as, dest, cdest, Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = reinterpret_cast<const AddExpr*>(expr);
+        compileExpr(add->left, Destination::kStack, cdest);
+        compileExpr(add->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ addq(RAX, tmp);
+        plug(as, dest, cdest, RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        word offset = reinterpret_cast<const VarRef*>(expr)->offset;
+        plug(as, dest, cdest, var_at(offset));
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        compileExpr(assign->right, Destination::kAccumulator, cdest);
+        __ movq(var_at(assign->left->offset), RAX);
+        plug(as, dest, cdest, RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = reinterpret_cast<const LessThan*>(expr);
+        compileExpr(less->left, Destination::kStack, cdest);
+        compileExpr(less->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ cmpq(tmp, RAX);
+        plug(as, dest, cdest, LESS);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+};
+
+void jit_stmt_ddcg(State* state, const Stmt* stmt) {
   Assembler as;
   emitPrologue(&as);
   Label next;
   compile_stmt(&as, stmt, ControlDestination(&next));
   as.bind(&next);
   emitEpilogue(&as);
+  // fprintf(stderr, "(%ld bytes) ", as.codeSize());
 
   MemoryRegion region = finalizeCode(&as);
   JitFunction function = codeAsFunction(region);
@@ -573,9 +719,9 @@ int main() {
   fprintf(stderr, "Testing interpreter (expr) ");
   test_interp(expr_tests, interpret_expr);
   fprintf(stderr, "Testing jit (expr) ");
-  test_interp(expr_tests, jit_expr);
+  test_interp(expr_tests, jit_expr_ddcg);
   fprintf(stderr, "Testing interpreter (stmt) ");
   test_interp(stmt_tests, interpret_stmt);
   fprintf(stderr, "Testing jit (stmt) ");
-  test_interp(stmt_tests, jit_stmt);
+  test_interp(stmt_tests, jit_stmt_ddcg);
 }
