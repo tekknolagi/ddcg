@@ -586,6 +586,16 @@ struct StmtTest {
   State expected;
 };
 
+void print_results(const std::vector<size_t>& failed) {
+  if (failed.size()) {
+    fprintf(stderr, "Failed tests:");
+    for (size_t test : failed) {
+      fprintf(stderr, " %zu", test);
+    }
+    fprintf(stderr, "\n");
+  }
+}
+
 template <typename T>
 void test_interp(ExprTest tests[]) {
   std::vector<size_t> failed;
@@ -599,13 +609,7 @@ void test_interp(ExprTest tests[]) {
     }
   }
   fprintf(stderr, "\n");
-  if (failed.size()) {
-    fprintf(stderr, "Failed tests:");
-    for (size_t test : failed) {
-      fprintf(stderr, " %zu", test);
-    }
-    fprintf(stderr, "\n");
-  }
+  print_results(failed);
 }
 
 template <typename T>
@@ -622,13 +626,7 @@ void test_interp(StmtTest tests[]) {
     }
   }
   fprintf(stderr, "\n");
-  if (failed.size()) {
-    fprintf(stderr, "Failed tests:");
-    for (size_t test : failed) {
-      fprintf(stderr, " %zu", test);
-    }
-    fprintf(stderr, "\n");
-  }
+  print_results(failed);
 }
 
 int main() {
