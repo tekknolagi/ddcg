@@ -111,74 +111,78 @@ struct State {
   word vars[kNumVars] = {};
 };
 
-word interpret_expr(State* state, const Expr* expr) {
-  switch (expr->type) {
-    case ExprType::kIntLit: {
-      return reinterpret_cast<const IntLit*>(expr)->value;
-    }
-    case ExprType::kAddExpr: {
-      auto add = reinterpret_cast<const AddExpr*>(expr);
-      word left = interpret_expr(state, add->left);
-      word right = interpret_expr(state, add->right);
-      return left + right;
-    }
-    case ExprType::kVarRef: {
-      return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
-    }
-    case ExprType::kVarAssign: {
-      auto assign = reinterpret_cast<const VarAssign*>(expr);
-      word result = interpret_expr(state, assign->right);
-      state->vars[assign->left->offset] = result;
-      return result;
-    }
-    case ExprType::kLessThan: {
-      auto less = reinterpret_cast<const LessThan*>(expr);
-      word left = interpret_expr(state, less->left);
-      word right = interpret_expr(state, less->right);
-      return left < right;
-    }
-    default: {
-      UNREACHABLE("unsupported expr type");
-      break;
+class Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) = 0;
+  virtual void interpret(State* state, const Stmt* stmt) = 0;
+};
+
+class Interpreter : public Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) {
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        return reinterpret_cast<const IntLit*>(expr)->value;
+      }
+      case ExprType::kAddExpr: {
+        auto add = reinterpret_cast<const AddExpr*>(expr);
+        word left = interpret(state, add->left);
+        word right = interpret(state, add->right);
+        return left + right;
+      }
+      case ExprType::kVarRef: {
+        return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
+      }
+      case ExprType::kVarAssign: {
+        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        word result = interpret(state, assign->right);
+        state->vars[assign->left->offset] = result;
+        return result;
+      }
+      case ExprType::kLessThan: {
+        auto less = reinterpret_cast<const LessThan*>(expr);
+        word left = interpret(state, less->left);
+        word right = interpret(state, less->right);
+        return left < right;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
     }
   }
-}
-
-void interpret_stmt(State* state, const Stmt* stmt) {
-  switch (stmt->type) {
-    case StmtType::kExpr: {
-      interpret_expr(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
-      break;
-    }
-    case StmtType::kBlock: {
-      auto block = reinterpret_cast<const BlockStmt*>(stmt);
-      for (size_t i = 0; i < block->body.size(); i++) {
-        interpret_stmt(state, block->body[i]);
+  virtual void interpret(State* state, const Stmt* stmt) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        interpret(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
+        break;
       }
-      break;
-    }
-    case StmtType::kIf: {
-      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      word result = interpret_expr(state, if_->cond);
-      if (result) {
-        interpret_stmt(state, if_->cons);
-      } else {
-        interpret_stmt(state, if_->alt);
+      case StmtType::kBlock: {
+        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          interpret(state, block->body[i]);
+        }
+        break;
       }
-      break;
-    }
-    default: {
-      UNREACHABLE("unsupported stmt type");
-      break;
+      case StmtType::kIf: {
+        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        word result = interpret(state, if_->cond);
+        if (result) {
+          interpret(state, if_->cons);
+        } else {
+          interpret(state, if_->alt);
+        }
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
     }
   }
-}
+};
 
-#define __ as->
-
-Address var_at(word index) {
-  return Address(RDI, index * sizeof(State{}.vars[0]));
-}
+#define __ as.
 
 enum class Destination {
   kStack,
@@ -202,199 +206,7 @@ struct ControlDestination {
   Label* alt;
 };
 
-void plug(Assembler* as, Destination dest, ControlDestination cdest,
-          Condition cond) {
-  switch (dest) {
-    case Destination::kStack: {
-      UNREACHABLE("TODO(max): implement plug(stack, cond)");
-      break;
-    }
-    case Destination::kAccumulator: {
-      Label materialize_true;
-      __ jcc(cond, &materialize_true, Assembler::kNearJump);
-      __ movq(RAX, Immediate(0));
-      __ jmp(cdest.alt, Assembler::kNearJump);
-      __ bind(&materialize_true);
-      __ movq(RAX, Immediate(1));
-      __ jmp(cdest.cons, Assembler::kNearJump);
-      break;
-    }
-    case Destination::kNowhere: {
-      __ jcc(cond, cdest.cons, Assembler::kNearJump);
-      __ jmp(cdest.alt, Assembler::kNearJump);
-      break;
-    }
-  }
-}
-
-void plug(Assembler* as, Destination dest, ControlDestination cdest,
-          Immediate imm) {
-  switch (dest) {
-    case Destination::kStack: {
-      __ pushq(imm);
-      break;
-    }
-    case Destination::kAccumulator: {
-      __ movq(RAX, imm);
-      break;
-    }
-    case Destination::kNowhere: {
-      // Nothing to do; not supposed to be materialized anywhere. Likely from
-      // an ExprStmt.
-      if (imm.value()) {
-        __ jmp(cdest.cons, Assembler::kNearJump);
-      } else {
-        __ jmp(cdest.alt, Assembler::kNearJump);
-      }
-      break;
-    }
-  }
-}
-
-void plug(Assembler* as, Destination dest, ControlDestination cdest,
-          Register reg) {
-  switch (dest) {
-    case Destination::kStack: {
-      UNREACHABLE("TODO(max): see how to generate this code");
-      __ pushq(reg);
-      break;
-    }
-    case Destination::kAccumulator: {
-      // Nothing to do; reg already in RAX or it's not supposed to materialize
-      // anywhere
-      DCHECK(reg == RAX, "expect RAX to be accumulator");
-      break;
-    }
-    case Destination::kNowhere: {
-      __ cmpq(reg, Immediate(0));
-      __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
-      __ jmp(cdest.cons, Assembler::kNearJump);
-      break;
-    }
-  }
-}
-
-void plug(Assembler* as, Destination dest, ControlDestination cdest,
-          Address mem) {
-  Register tmp = RCX;
-  switch (dest) {
-    case Destination::kStack: {
-      __ movq(tmp, mem);
-      __ pushq(tmp);
-      break;
-    }
-    case Destination::kAccumulator: {
-      __ movq(RAX, mem);
-      break;
-    }
-    case Destination::kNowhere: {
-      UNREACHABLE("TODO(max): see how to generate this code");
-      break;
-    }
-  }
-}
-
-void compile_expr_old(Assembler* as, const Expr* expr) {}
-
-void compile_expr(Assembler* as, const Expr* expr, Destination dest,
-                  ControlDestination cdest) {
-  Register tmp = RCX;
-  switch (expr->type) {
-    case ExprType::kIntLit: {
-      word value = reinterpret_cast<const IntLit*>(expr)->value;
-      plug(as, dest, cdest, Immediate(value));
-      break;
-    }
-    case ExprType::kAddExpr: {
-      auto add = reinterpret_cast<const AddExpr*>(expr);
-      compile_expr(as, add->left, Destination::kStack, cdest);
-      compile_expr(as, add->right, Destination::kAccumulator, cdest);
-      __ popq(tmp);
-      __ addq(RAX, tmp);
-      plug(as, dest, cdest, RAX);
-      break;
-    }
-    case ExprType::kVarRef: {
-      word offset = reinterpret_cast<const VarRef*>(expr)->offset;
-      plug(as, dest, cdest, var_at(offset));
-      break;
-    }
-    case ExprType::kVarAssign: {
-      auto assign = reinterpret_cast<const VarAssign*>(expr);
-      compile_expr(as, assign->right, Destination::kAccumulator, cdest);
-      __ movq(var_at(assign->left->offset), RAX);
-      plug(as, dest, cdest, RAX);
-      break;
-    }
-    case ExprType::kLessThan: {
-      auto less = reinterpret_cast<const LessThan*>(expr);
-      compile_expr(as, less->left, Destination::kStack, cdest);
-      compile_expr(as, less->right, Destination::kAccumulator, cdest);
-      __ popq(tmp);
-      __ cmpq(tmp, RAX);
-      plug(as, dest, cdest, LESS);
-      break;
-    }
-    default: {
-      UNREACHABLE("unsupported expr type");
-      break;
-    }
-  }
-}
-
-void compile_stmt(Assembler* as, const Stmt* stmt, ControlDestination cdest) {
-  switch (stmt->type) {
-    case StmtType::kExpr: {
-      compile_expr(as, reinterpret_cast<const ExprStmt*>(stmt)->expr,
-                   Destination::kNowhere, cdest);
-      break;
-    }
-    case StmtType::kBlock: {
-      auto block = reinterpret_cast<const BlockStmt*>(stmt);
-      for (size_t i = 0; i < block->body.size(); i++) {
-        Label next;
-        compile_stmt(as, block->body[i], ControlDestination(&next, &next));
-        __ bind(&next);
-      }
-      break;
-    }
-    case StmtType::kIf: {
-      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      Label cons;
-      Label alt;
-      compile_expr(as, if_->cond, Destination::kNowhere,
-                   ControlDestination(&cons, &alt));
-      // true:
-      __ bind(&cons);
-      compile_stmt(as, if_->cons, cdest);
-      Label exit;
-      __ jmp(&exit, Assembler::kNearJump);
-      // false:
-      __ bind(&alt);
-      compile_stmt(as, if_->alt, cdest);
-      // exit:
-      __ bind(&exit);
-      break;
-    }
-    default: {
-      UNREACHABLE("unsupported stmt type");
-      break;
-    }
-  }
-}
-
-void emitPrologue(Assembler* as) {
-  __ pushq(RBP);
-  __ movq(RBP, RSP);
-  __ subq(RSP, Immediate(kNumVars));
-}
-
 // TODO(max): Fix camelCase vs snake_case naming conventions in this file
-void emitEpilogue(Assembler* as) {
-  __ movq(RSP, RBP);
-  __ popq(RBP);
-  __ ret();
-}
 
 MemoryRegion finalizeCode(Assembler* as) {
   word code_size = Utils::roundUp(as->codeSize(), getpagesize());
@@ -424,53 +236,49 @@ JitFunction codeAsFunction(MemoryRegion region) {
   return *(JitFunction*)&code;
 }
 
-class Evaluator {
- public:
-  virtual word interpret(State* state, const Expr* expr) = 0;
-  virtual void interpret(State* state, const Stmt* stmt) = 0;
-};
-
-class Interpreter : public Evaluator {
- public:
-  virtual word interpret(State* state, const Expr* expr) {
-    return interpret_expr(state, expr);
-  }
-  virtual void interpret(State* state, const Stmt* stmt) {
-    interpret_stmt(state, stmt);
-  }
-};
-
 class JIT : public Evaluator {
  public:
   virtual word interpret(State* state, const Expr* expr) {
-    Assembler as;
-    emitPrologue(&as);
-    Label next;
+    emitPrologue();
     compileExpr(expr);
-    as.popq(RAX);
-    as.bind(&next);
-    emitEpilogue(&as);
+    emitEpilogue();
     MemoryRegion region = finalizeCode(&as);
     JitFunction function = codeAsFunction(region);
     word result = function(state->vars);
     unmapCode(region);
     return result;
   }
+
   virtual void interpret(State* state, const Stmt* stmt) {
-    interpret_stmt(state, stmt);
+    emitPrologue();
+    compileStmt(stmt);
+    emitEpilogue();
+    MemoryRegion region = finalizeCode(&as);
+    JitFunction function = codeAsFunction(region);
+    function(state->vars);
+    unmapCode(region);
   }
+
   virtual void emitPrologue() {
     as.pushq(RBP);
     as.movq(RBP, RSP);
     as.subq(RSP, Immediate(kNumVars));
   }
+
   virtual void emitEpilogue() {
     as.movq(RSP, RBP);
     as.popq(RBP);
     as.ret();
   }
+
   word codeSize() const { return as.codeSize(); }
+
+  Address varAt(word index) {
+    return Address(RDI, index * sizeof(State{}.vars[0]));
+  }
+
   virtual void compileExpr(const Expr* expr) = 0;
+
   virtual void compileStmt(const Stmt* stmt) = 0;
 
  protected:
@@ -480,6 +288,11 @@ class JIT : public Evaluator {
 class BaselineJIT : public JIT {
  public:
   virtual void compileExpr(const Expr* expr) {
+    compileExprHelper(expr);
+    __ popq(RAX);
+  }
+
+  void compileExprHelper(const Expr* expr) {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
@@ -489,8 +302,8 @@ class BaselineJIT : public JIT {
       }
       case ExprType::kAddExpr: {
         auto add = reinterpret_cast<const AddExpr*>(expr);
-        compileExpr(add->left);
-        compileExpr(add->right);
+        compileExprHelper(add->left);
+        compileExprHelper(add->right);
         __ popq(tmp);
         __ popq(RAX);
         __ addq(RAX, tmp);
@@ -499,21 +312,21 @@ class BaselineJIT : public JIT {
       }
       case ExprType::kVarRef: {
         int offset = reinterpret_cast<const VarRef*>(expr)->offset;
-        __ movq(RAX, var_at(offset));
+        __ movq(RAX, varAt(offset));
         __ pushq(RAX);
         break;
       }
       case ExprType::kVarAssign: {
         auto assign = reinterpret_cast<const VarAssign*>(expr);
-        compileExpr(assign->right);
-        __ movq(RAX, Address(RSP));
-        __ movq(var_at(assign->left->offset), RAX);
+        compileExprHelper(assign->right);
+        __ movq(RAX, Address(RSP, 0));
+        __ movq(varAt(assign->left->offset), RAX);
         break;
       }
       case ExprType::kLessThan: {
         auto less = reinterpret_cast<const LessThan*>(expr);
-        compileExpr(less->left);
-        compileExpr(less->right);
+        compileExprHelper(less->left);
+        compileExprHelper(less->right);
         __ popq(tmp);
         __ popq(RAX);
         __ subq(RAX, tmp);
@@ -528,20 +341,63 @@ class BaselineJIT : public JIT {
       }
     }
   }
-  virtual void emitEpilogue() {
-    as.popq(RAX);
-    JIT::emitEpilogue(this);
+
+  virtual void compileStmt(const Stmt* stmt) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExprHelper(reinterpret_cast<const ExprStmt*>(stmt)->expr);
+        __ popq(RAX);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          compileStmt(block->body[i]);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        Label alt;
+        Label exit;
+        compileExprHelper(if_->cond);
+        __ popq(RAX);
+        __ cmpq(RAX, Immediate(0));
+        __ jcc(EQUAL, &alt, Assembler::kNearJump);
+        // true:
+        compileStmt(if_->cons);
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
   }
 };
 
 class DestinationDrivenJIT : public JIT {
  public:
   virtual void compileExpr(const Expr* expr) {
+    Label next;
+    compileExpr(expr, Destination::kAccumulator,
+                ControlDestination(&next, &next));
+    __ bind(&next);
+  }
+
+  void compileExpr(const Expr* expr, Destination dest,
+                   ControlDestination cdest) {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
         word value = reinterpret_cast<const IntLit*>(expr)->value;
-        plug(as, dest, cdest, Immediate(value));
+        plug(dest, cdest, Immediate(value));
         break;
       }
       case ExprType::kAddExpr: {
@@ -550,19 +406,19 @@ class DestinationDrivenJIT : public JIT {
         compileExpr(add->right, Destination::kAccumulator, cdest);
         __ popq(tmp);
         __ addq(RAX, tmp);
-        plug(as, dest, cdest, RAX);
+        plug(dest, cdest, RAX);
         break;
       }
       case ExprType::kVarRef: {
         word offset = reinterpret_cast<const VarRef*>(expr)->offset;
-        plug(as, dest, cdest, var_at(offset));
+        plug(dest, cdest, varAt(offset));
         break;
       }
       case ExprType::kVarAssign: {
         auto assign = reinterpret_cast<const VarAssign*>(expr);
         compileExpr(assign->right, Destination::kAccumulator, cdest);
-        __ movq(var_at(assign->left->offset), RAX);
-        plug(as, dest, cdest, RAX);
+        __ movq(varAt(assign->left->offset), RAX);
+        plug(dest, cdest, RAX);
         break;
       }
       case ExprType::kLessThan: {
@@ -571,7 +427,7 @@ class DestinationDrivenJIT : public JIT {
         compileExpr(less->right, Destination::kAccumulator, cdest);
         __ popq(tmp);
         __ cmpq(tmp, RAX);
-        plug(as, dest, cdest, LESS);
+        plug(dest, cdest, LESS);
         break;
       }
       default: {
@@ -580,25 +436,144 @@ class DestinationDrivenJIT : public JIT {
       }
     }
   }
+
+  virtual void compileStmt(const Stmt* stmt) {
+    Label next;
+    compileStmt(stmt, ControlDestination(&next, &next));
+    __ bind(&next);
+  }
+
+  void compileStmt(const Stmt* stmt, ControlDestination cdest) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExpr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
+                    Destination::kNowhere, cdest);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          Label next;
+          compileStmt(block->body[i], ControlDestination(&next, &next));
+          __ bind(&next);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        Label cons;
+        Label alt;
+        compileExpr(if_->cond, Destination::kNowhere,
+                    ControlDestination(&cons, &alt));
+        // true:
+        __ bind(&cons);
+        compileStmt(if_->cons, cdest);
+        Label exit;
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt, cdest);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination cdest, Condition cond) {
+    switch (dest) {
+      case Destination::kStack: {
+        UNREACHABLE("TODO(max): implement plug(stack, cond)");
+        break;
+      }
+      case Destination::kAccumulator: {
+        Label materialize_true;
+        __ jcc(cond, &materialize_true, Assembler::kNearJump);
+        __ movq(RAX, Immediate(0));
+        __ jmp(cdest.alt, Assembler::kNearJump);
+        __ bind(&materialize_true);
+        __ movq(RAX, Immediate(1));
+        __ jmp(cdest.cons, Assembler::kNearJump);
+        break;
+      }
+      case Destination::kNowhere: {
+        __ jcc(cond, cdest.cons, Assembler::kNearJump);
+        __ jmp(cdest.alt, Assembler::kNearJump);
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination cdest, Immediate imm) {
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(imm);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, imm);
+        break;
+      }
+      case Destination::kNowhere: {
+        // Nothing to do; not supposed to be materialized anywhere. Likely from
+        // an ExprStmt.
+        if (imm.value()) {
+          __ jmp(cdest.cons, Assembler::kNearJump);
+        } else {
+          __ jmp(cdest.alt, Assembler::kNearJump);
+        }
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination cdest, Register reg) {
+    switch (dest) {
+      case Destination::kStack: {
+        UNREACHABLE("TODO(max): see how to generate this code");
+        __ pushq(reg);
+        break;
+      }
+      case Destination::kAccumulator: {
+        // Nothing to do; reg already in RAX or it's not supposed to materialize
+        // anywhere
+        DCHECK(reg == RAX, "expect RAX to be accumulator");
+        break;
+      }
+      case Destination::kNowhere: {
+        __ cmpq(reg, Immediate(0));
+        __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
+        __ jmp(cdest.cons, Assembler::kNearJump);
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination cdest, Address mem) {
+    Register tmp = RCX;
+    switch (dest) {
+      case Destination::kStack: {
+        __ movq(tmp, mem);
+        __ pushq(tmp);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, mem);
+        break;
+      }
+      case Destination::kNowhere: {
+        UNREACHABLE("TODO(max): see how to generate this code");
+        break;
+      }
+    }
+  }
 };
 
-void jit_stmt_ddcg(State* state, const Stmt* stmt) {
-  Assembler as;
-  emitPrologue(&as);
-  Label next;
-  compile_stmt(&as, stmt, ControlDestination(&next));
-  as.bind(&next);
-  emitEpilogue(&as);
-  // fprintf(stderr, "(%ld bytes) ", as.codeSize());
-
-  MemoryRegion region = finalizeCode(&as);
-  JitFunction function = codeAsFunction(region);
-  function(state->vars);
-  unmapCode(region);
-}
-
-// TODO(max): Unify ExprTest and StmtTest... maybe also jit_expr and jit_stmt
-// into jit_program?
+// TODO(max): Unify ExprTest and StmtTest
 
 struct ExprTest {
   State state;
@@ -611,13 +586,11 @@ struct StmtTest {
   State expected;
 };
 
-typedef word ExprInterpreter(State* state, const Expr* expr);
-typedef void StmtInterpreter(State* state, const Stmt* stmt);
-
-void test_interp(ExprTest tests[], ExprInterpreter interpret) {
+template <typename T>
+void test_interp(ExprTest tests[]) {
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].expr != nullptr; i++) {
-    word result = interpret(&tests[i].state, tests[i].expr);
+    word result = T{}.interpret(&tests[i].state, tests[i].expr);
     if (result == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
@@ -635,11 +608,12 @@ void test_interp(ExprTest tests[], ExprInterpreter interpret) {
   }
 }
 
-void test_interp(StmtTest tests[], StmtInterpreter interpret) {
+template <typename T>
+void test_interp(StmtTest tests[]) {
   std::vector<size_t> failed;
   for (size_t i = 0; tests[i].stmt != nullptr; i++) {
     State state;
-    interpret(&state, tests[i].stmt);
+    T{}.interpret(&state, tests[i].stmt);
     if (state == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
@@ -717,11 +691,15 @@ int main() {
       {nullptr, State{}},
   };
   fprintf(stderr, "Testing interpreter (expr) ");
-  test_interp(expr_tests, interpret_expr);
-  fprintf(stderr, "Testing jit (expr) ");
-  test_interp(expr_tests, jit_expr_ddcg);
+  test_interp<Interpreter>(expr_tests);
   fprintf(stderr, "Testing interpreter (stmt) ");
-  test_interp(stmt_tests, interpret_stmt);
-  fprintf(stderr, "Testing jit (stmt) ");
-  test_interp(stmt_tests, jit_stmt_ddcg);
+  test_interp<Interpreter>(stmt_tests);
+  fprintf(stderr, "Testing baseline jit (expr) ");
+  test_interp<BaselineJIT>(expr_tests);
+  fprintf(stderr, "Testing baseline jit (stmt) ");
+  test_interp<BaselineJIT>(stmt_tests);
+  fprintf(stderr, "Testing destination jit (expr) ");
+  test_interp<DestinationDrivenJIT>(expr_tests);
+  fprintf(stderr, "Testing destination jit (stmt) ");
+  test_interp<DestinationDrivenJIT>(stmt_tests);
 }
