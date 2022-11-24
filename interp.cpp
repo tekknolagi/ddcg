@@ -190,22 +190,6 @@ enum class Destination {
   kNowhere,
 };
 
-enum class ControlDestinationType {
-  kRegister,
-  kCondition,
-};
-
-struct ControlDestination {
-  explicit ControlDestination(Label* next) : cons(next), alt(next) {}
-  explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
-  static ControlDestination nowhere() {
-    return ControlDestination(nullptr, nullptr);
-  }
-  Register reg{kNoRegister};
-  Label* cons;
-  Label* alt;
-};
-
 // TODO(max): Fix camelCase vs snake_case naming conventions in this file
 
 MemoryRegion finalizeCode(Assembler* as) {
@@ -383,6 +367,172 @@ class BaselineJIT : public JIT {
 };
 
 class DestinationDrivenJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    compileExpr(expr, Destination::kAccumulator);
+  }
+
+  void compileExpr(const Expr* expr, Destination dest) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        int value = reinterpret_cast<const IntLit*>(expr)->value;
+        plug(dest, Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = reinterpret_cast<const AddExpr*>(expr);
+        compileExpr(add->left, Destination::kStack);
+        compileExpr(add->right, Destination::kAccumulator);
+        __ popq(tmp);
+        __ addq(RAX, tmp);
+        plug(dest, RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        int offset = reinterpret_cast<const VarRef*>(expr)->offset;
+        plug(dest, varAt(offset));
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        compileExpr(assign->right, Destination::kAccumulator);
+        __ movq(varAt(assign->left->offset), RAX);
+        plug(dest, RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = reinterpret_cast<const LessThan*>(expr);
+        compileExpr(less->left, Destination::kStack);
+        compileExpr(less->right, Destination::kAccumulator);
+        Label cons;
+        Label alt;
+        Label exit;
+        __ popq(tmp);
+        __ cmpq(tmp, RAX);
+        __ jcc(GREATER_EQUAL, &exit, Assembler::kNearJump);
+        // true:
+        plug(dest, Immediate(1));
+        __ jmp(&exit, Assembler::kNearJump);
+        plug(dest, Immediate(0));
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+
+  virtual void compileStmt(const Stmt* stmt) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExpr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
+                    Destination::kNowhere);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          compileStmt(block->body[i]);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        compileExpr(if_->cond, Destination::kAccumulator);
+        Label alt;
+        __ andq(RAX, RAX);  // check if falsey
+        __ jcc(EQUAL, &alt, Assembler::kNearJump);
+        // true:
+        compileStmt(if_->cons);
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        std::fprintf(stderr, "unsupported stmt type\n");
+        std::abort();
+      }
+    }
+  }
+
+void plug(Destination dest, Immediate imm) {
+  Reg tmp = RCX;
+  switch (dest) {
+    case Destination::kStack: {
+      push_imm(imm.value);
+      break;
+    }
+    case Destination::kAccumulator: {
+      mov_reg_imm(RAX, imm.value);
+      break;
+    }
+    case Destination::kNowhere: {
+      // Nothing to do
+      break;
+    }
+  }
+}
+
+void plug(Destination dest, Register reg) {
+  assert(reg == RAX);
+  switch (dest) {
+    case Destination::kStack: {
+      push_reg(reg);
+      break;
+    }
+    case Destination::kAccumulator:
+    case Destination::kNowhere: {
+      // Nothing to do
+      break;
+    }
+  }
+}
+
+void plug(Destination dest, Address mem) {
+  Reg tmp = RBX;
+  switch (dest) {
+    case Destination::kStack: {
+      mov_reg_mem(tmp, mem);
+      push_reg(tmp);
+      break;
+    }
+    case Destination::kAccumulator: {
+      mov_reg_mem(RAX, mem);
+      break;
+    }
+    case Destination::kNowhere: {
+      // Nothing to do
+      break;
+    }
+  }
+}
+};
+
+enum class ControlDestinationType {
+  kRegister,
+  kCondition,
+};
+
+struct ControlDestination {
+  explicit ControlDestination(Label* next) : cons(next), alt(next) {}
+  explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
+  static ControlDestination nowhere() {
+    return ControlDestination(nullptr, nullptr);
+  }
+  Register reg{kNoRegister};
+  Label* cons;
+  Label* alt;
+};
+
+
+class ControlDestinationDrivenJIT : public JIT {
  public:
   virtual void compileExpr(const Expr* expr) {
     Label next;
@@ -700,4 +850,8 @@ int main() {
   test_interp<DestinationDrivenJIT>(expr_tests);
   fprintf(stderr, "Testing destination jit (stmt) ");
   test_interp<DestinationDrivenJIT>(stmt_tests);
+  fprintf(stderr, "Testing control destination jit (expr) ");
+  test_interp<ControlDestinationDrivenJIT>(expr_tests);
+  fprintf(stderr, "Testing control destination jit (stmt) ");
+  test_interp<ControlDestinationDrivenJIT>(stmt_tests);
 }
