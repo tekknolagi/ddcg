@@ -410,11 +410,14 @@ class DestinationDrivenJIT : public JIT {
         Label exit;
         __ popq(tmp);
         __ cmpq(tmp, RAX);
-        __ jcc(GREATER_EQUAL, &exit, Assembler::kNearJump);
+        __ jcc(GREATER_EQUAL, &alt, Assembler::kNearJump);
         // true:
         plug(dest, Immediate(1));
         __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
         plug(dest, Immediate(0));
+        // exit:
         __ bind(&exit);
         break;
       }
