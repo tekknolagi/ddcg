@@ -521,11 +521,9 @@ class DestinationDrivenJIT : public JIT {
 };
 
 struct ControlDestination {
-  explicit ControlDestination(Label* next) : cons(next), alt(next) {}
   explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
-  Register reg{kNoRegister};
-  Label* cons;
-  Label* alt;
+  Label* cons{nullptr};
+  Label* alt{nullptr};
 };
 
 class ControlDestinationDrivenJIT : public JIT {
