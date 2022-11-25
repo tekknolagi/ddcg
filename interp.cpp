@@ -520,11 +520,6 @@ class DestinationDrivenJIT : public JIT {
   }
 };
 
-enum class ControlDestinationType {
-  kRegister,
-  kCondition,
-};
-
 struct ControlDestination {
   explicit ControlDestination(Label* next) : cons(next), alt(next) {}
   explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
