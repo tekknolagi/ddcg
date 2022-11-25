@@ -707,7 +707,6 @@ class ControlDestinationDrivenJIT : public JIT {
       }
       case Destination::kNowhere: {
         __ cmpq(reg, Immediate(0));
-
         if (cdest.fallthrough == cdest.cons) {
           __ jcc(NOT_EQUAL, cdest.alt, Assembler::kNearJump);
         } else if (cdest.fallthrough == cdest.alt) {
@@ -716,9 +715,6 @@ class ControlDestinationDrivenJIT : public JIT {
           __ jcc(EQUAL, cdest.cons, Assembler::kNearJump);
           __ jmp(cdest.alt, Assembler::kNearJump);
         }
-
-        // __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
-        // __ jmp(cdest.cons, Assembler::kNearJump);
         break;
       }
     }
