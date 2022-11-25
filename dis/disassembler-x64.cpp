@@ -387,7 +387,9 @@ void DisassemblerX64::print(const char* format, ...) {
 
 template <typename T>
 static inline T LoadUnaligned(const T* ptr) {
-  return *ptr;
+  T result;
+  ::memcpy(&result, ptr, sizeof(T));
+  return result;
 }
 
 int DisassemblerX64::printRightOperandHelper(
