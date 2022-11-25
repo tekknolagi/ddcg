@@ -443,6 +443,7 @@ class DestinationDrivenJIT : public JIT {
         auto if_ = reinterpret_cast<const IfStmt*>(stmt);
         compileExpr(if_->cond, Destination::kAccumulator);
         Label alt;
+        Label exit;
         __ andq(RAX, RAX);  // check if falsey
         __ jcc(EQUAL, &alt, Assembler::kNearJump);
         // true:
@@ -462,57 +463,57 @@ class DestinationDrivenJIT : public JIT {
     }
   }
 
-void plug(Destination dest, Immediate imm) {
-  Reg tmp = RCX;
-  switch (dest) {
-    case Destination::kStack: {
-      push_imm(imm.value);
-      break;
-    }
-    case Destination::kAccumulator: {
-      mov_reg_imm(RAX, imm.value);
-      break;
-    }
-    case Destination::kNowhere: {
-      // Nothing to do
-      break;
+  void plug(Destination dest, Immediate imm) {
+    Register tmp = RCX;
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(imm);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, imm);
+        break;
+      }
+      case Destination::kNowhere: {
+        // Nothing to do
+        break;
+      }
     }
   }
-}
 
-void plug(Destination dest, Register reg) {
-  assert(reg == RAX);
-  switch (dest) {
-    case Destination::kStack: {
-      push_reg(reg);
-      break;
-    }
-    case Destination::kAccumulator:
-    case Destination::kNowhere: {
-      // Nothing to do
-      break;
+  void plug(Destination dest, Register reg) {
+    assert(reg == RAX);
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(reg);
+        break;
+      }
+      case Destination::kAccumulator:
+      case Destination::kNowhere: {
+        // Nothing to do
+        break;
+      }
     }
   }
-}
 
-void plug(Destination dest, Address mem) {
-  Reg tmp = RBX;
-  switch (dest) {
-    case Destination::kStack: {
-      mov_reg_mem(tmp, mem);
-      push_reg(tmp);
-      break;
-    }
-    case Destination::kAccumulator: {
-      mov_reg_mem(RAX, mem);
-      break;
-    }
-    case Destination::kNowhere: {
-      // Nothing to do
-      break;
+  void plug(Destination dest, Address mem) {
+    Register tmp = RBX;
+    switch (dest) {
+      case Destination::kStack: {
+        __ movq(tmp, mem);
+        __ pushq(tmp);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, mem);
+        break;
+      }
+      case Destination::kNowhere: {
+        // Nothing to do
+        break;
+      }
     }
   }
-}
 };
 
 enum class ControlDestinationType {
@@ -530,7 +531,6 @@ struct ControlDestination {
   Label* cons;
   Label* alt;
 };
-
 
 class ControlDestinationDrivenJIT : public JIT {
  public:
