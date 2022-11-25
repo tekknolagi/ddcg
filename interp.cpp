@@ -151,6 +151,7 @@ class Interpreter : public Evaluator {
       }
     }
   }
+
   virtual void interpret(State* state, const Stmt* stmt) {
     switch (stmt->type) {
       case StmtType::kExpr: {
