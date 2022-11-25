@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "dis.h"
 #include "dis/assembler-x64.h"
 #include "dis/dcheck.h"
 
@@ -522,8 +523,11 @@ class DestinationDrivenJIT : public JIT {
 
 struct ControlDestination {
   explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
+  explicit ControlDestination(Label* cons, Label* alt, Label* fallthrough)
+      : cons(cons), alt(alt), fallthrough(fallthrough) {}
   Label* cons{nullptr};
   Label* alt{nullptr};
+  Label* fallthrough{nullptr};
 };
 
 class ControlDestinationDrivenJIT : public JIT {
@@ -531,7 +535,7 @@ class ControlDestinationDrivenJIT : public JIT {
   virtual void compileExpr(const Expr* expr) {
     Label next;
     compileExpr(expr, Destination::kAccumulator,
-                ControlDestination(&next, &next));
+                ControlDestination(&next, &next, &next));
     __ bind(&next);
   }
 
@@ -583,11 +587,11 @@ class ControlDestinationDrivenJIT : public JIT {
 
   virtual void compileStmt(const Stmt* stmt) {
     Label next;
-    compileStmt(stmt, ControlDestination(&next, &next));
+    compileStmt(stmt, ControlDestination(&next, &next, &next));
     __ bind(&next);
   }
 
-  void compileStmt(const Stmt* stmt, ControlDestination cdest) {
+  virtual void compileStmt(const Stmt* stmt, ControlDestination cdest) {
     switch (stmt->type) {
       case StmtType::kExpr: {
         compileExpr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
@@ -598,7 +602,7 @@ class ControlDestinationDrivenJIT : public JIT {
         auto block = reinterpret_cast<const BlockStmt*>(stmt);
         for (size_t i = 0; i < block->body.size(); i++) {
           Label next;
-          compileStmt(block->body[i], ControlDestination(&next, &next));
+          compileStmt(block->body[i], ControlDestination(&next, &next, &next));
           __ bind(&next);
         }
         break;
@@ -608,7 +612,7 @@ class ControlDestinationDrivenJIT : public JIT {
         Label cons;
         Label alt;
         compileExpr(if_->cond, Destination::kNowhere,
-                    ControlDestination(&cons, &alt));
+                    ControlDestination(&cons, &alt, &cons));
         // true:
         __ bind(&cons);
         compileStmt(if_->cons, cdest);
@@ -628,7 +632,8 @@ class ControlDestinationDrivenJIT : public JIT {
     }
   }
 
-  void plug(Destination dest, ControlDestination cdest, Condition cond) {
+  virtual void plug(Destination dest, ControlDestination cdest,
+                    Condition cond) {
     switch (dest) {
       case Destination::kStack: {
         UNREACHABLE("TODO(max): implement plug(stack, cond)");
@@ -641,12 +646,20 @@ class ControlDestinationDrivenJIT : public JIT {
         __ jmp(cdest.alt, Assembler::kNearJump);
         __ bind(&materialize_true);
         __ movq(RAX, Immediate(1));
-        __ jmp(cdest.cons, Assembler::kNearJump);
+        if (cdest.cons != cdest.fallthrough) {
+          __ jmp(cdest.cons, Assembler::kNearJump);
+        }
         break;
       }
       case Destination::kNowhere: {
-        __ jcc(cond, cdest.cons, Assembler::kNearJump);
-        __ jmp(cdest.alt, Assembler::kNearJump);
+        if (cdest.fallthrough == cdest.cons) {
+          __ jcc(invert(cond), cdest.alt, Assembler::kNearJump);
+        } else if (cdest.fallthrough == cdest.alt) {
+          __ jcc(cond, cdest.cons, Assembler::kNearJump);
+        } else {
+          __ jcc(cond, cdest.cons, Assembler::kNearJump);
+          __ jmp(cdest.alt, Assembler::kNearJump);
+        }
         break;
       }
     }
@@ -666,9 +679,13 @@ class ControlDestinationDrivenJIT : public JIT {
         // Nothing to do; not supposed to be materialized anywhere. Likely from
         // an ExprStmt.
         if (imm.value()) {
-          __ jmp(cdest.cons, Assembler::kNearJump);
+          if (cdest.cons != cdest.fallthrough) {
+            __ jmp(cdest.cons, Assembler::kNearJump);
+          }
         } else {
-          __ jmp(cdest.alt, Assembler::kNearJump);
+          if (cdest.alt != cdest.fallthrough) {
+            __ jmp(cdest.alt, Assembler::kNearJump);
+          }
         }
         break;
       }
@@ -690,8 +707,18 @@ class ControlDestinationDrivenJIT : public JIT {
       }
       case Destination::kNowhere: {
         __ cmpq(reg, Immediate(0));
-        __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
-        __ jmp(cdest.cons, Assembler::kNearJump);
+
+        if (cdest.fallthrough == cdest.cons) {
+          __ jcc(NOT_EQUAL, cdest.alt, Assembler::kNearJump);
+        } else if (cdest.fallthrough == cdest.alt) {
+          __ jcc(EQUAL, cdest.cons, Assembler::kNearJump);
+        } else {
+          __ jcc(EQUAL, cdest.cons, Assembler::kNearJump);
+          __ jmp(cdest.alt, Assembler::kNearJump);
+        }
+
+        // __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
+        // __ jmp(cdest.cons, Assembler::kNearJump);
         break;
       }
     }

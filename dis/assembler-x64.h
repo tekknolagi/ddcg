@@ -107,6 +107,17 @@ enum Condition {
   INVALID_CONDITION = -1
 };
 
+inline Condition invert(Condition cond) {
+  switch (cond) {
+    case BELOW:
+      return ABOVE_EQUAL;
+    case LESS:
+      return GREATER_EQUAL;
+    default:
+      UNREACHABLE("unknown condition");
+  }
+}
+
 enum ScaleFactor {
   TIMES_1 = 0,
   TIMES_2 = 1,
@@ -921,4 +932,4 @@ inline void Assembler::emitOperandSizeOverride() { emitUint8(0x66); }
 
 }  // namespace x64
 
-}
+}  // namespace dis

@@ -11,8 +11,8 @@
 #include <cinttypes>
 #include <cstdarg>
 
-#include "dcheck.h"
 #include "assembler-x64.h"
+#include "dcheck.h"
 
 namespace dis {
 
@@ -1984,4 +1984,4 @@ void Disassembler::decodeInstruction(char* hex_buffer, intptr_t hex_size,
   }
 }
 
-}
+}  // namespace dis
