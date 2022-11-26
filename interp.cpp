@@ -263,6 +263,10 @@ class JIT : public Evaluator {
     return Address(RDI, index * sizeof(State{}.vars[0]));
   }
 
+  void cmpZero(Register reg) { __ andq(reg, reg); }
+
+  void cmpZero(Address mem) { __ cmpq(mem, Immediate(0)); }
+
   virtual void compileExpr(const Expr* expr) = 0;
 
   virtual void compileStmt(const Stmt* stmt) = 0;
@@ -348,7 +352,7 @@ class BaselineJIT : public JIT {
         Label exit;
         compileExprHelper(if_->cond);
         __ popq(RAX);
-        __ andq(RAX, RAX);
+        cmpZero(RAX);
         __ jcc(EQUAL, &alt, Assembler::kNearJump);
         // true:
         compileStmt(if_->cons);
@@ -449,7 +453,7 @@ class DestinationDrivenJIT : public JIT {
         compileExpr(if_->cond, Destination::kAccumulator);
         Label alt;
         Label exit;
-        __ andq(RAX, RAX);  // check if falsey
+        cmpZero(RAX);  // check if falsey
         __ jcc(EQUAL, &alt, Assembler::kNearJump);
         // true:
         compileStmt(if_->cons);
@@ -702,7 +706,7 @@ class ControlDestinationDrivenJIT : public JIT {
       // Nobody depends on it.
       return;
     }
-    __ cmpq(op, Immediate(0));
+    cmpZero(op);
     if (cdest.fallthrough == cdest.cons) {
       __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
     } else if (cdest.fallthrough == cdest.alt) {
