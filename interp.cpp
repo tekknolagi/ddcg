@@ -270,7 +270,7 @@ class JIT : public Evaluator {
     return Address(RDI, index * sizeof(State{}.vars[0]));
   }
 
-  void cmpZero(Register reg) { __ andq(reg, reg); }
+  void cmpZero(Register reg) { __ testq(reg, reg); }
 
   void cmpZero(Address mem) { __ cmpq(mem, Immediate(0)); }
 
