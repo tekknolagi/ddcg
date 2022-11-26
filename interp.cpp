@@ -102,7 +102,7 @@ struct State {
     return result;
   }
   bool operator==(const State& other) {
-    for (size_t i = 0; i < kNumVars; i++) {
+    for (word i = 0; i < kNumVars; i++) {
       if (vars[i] != other.vars[i]) {
         return false;
       }
@@ -763,10 +763,10 @@ struct StmtTest {
   State expected;
 };
 
-void print_results(const std::vector<size_t>& failed) {
+void print_results(const std::vector<word>& failed) {
   if (failed.size()) {
     fprintf(stderr, "Failed tests:");
-    for (size_t test : failed) {
+    for (word test : failed) {
       fprintf(stderr, " %zu", test);
     }
     fprintf(stderr, "\n");
@@ -775,8 +775,8 @@ void print_results(const std::vector<size_t>& failed) {
 
 template <typename T>
 void test_interp(ExprTest tests[]) {
-  std::vector<size_t> failed;
-  for (size_t i = 0; tests[i].expr != nullptr; i++) {
+  std::vector<word> failed;
+  for (word i = 0; tests[i].expr != nullptr; i++) {
     word result = T{}.interpret(&tests[i].state, tests[i].expr);
     if (result == tests[i].expected) {
       fprintf(stderr, ".");
@@ -791,8 +791,8 @@ void test_interp(ExprTest tests[]) {
 
 template <typename T>
 void test_interp(StmtTest tests[]) {
-  std::vector<size_t> failed;
-  for (size_t i = 0; tests[i].stmt != nullptr; i++) {
+  std::vector<word> failed;
+  for (word i = 0; tests[i].stmt != nullptr; i++) {
     State state;
     T{}.interpret(&state, tests[i].stmt);
     if (state == tests[i].expected) {
@@ -869,7 +869,7 @@ int main() {
        }),
        State{}.set(0, 123)},
       {new BlockStmt({
-      // TODO(max): Use beginning state instead of explicit VarAssign
+           // TODO(max): Use beginning state instead of explicit VarAssign
            new ExprStmt(new VarAssign(new VarRef(0), new IntLit(1))),
            new IfStmt(
                new VarRef(0),
@@ -879,7 +879,7 @@ int main() {
        }),
        State{}.set(0, 1).set(1, 2)},
       {new BlockStmt({
-      // TODO(max): Use beginning state instead of explicit VarAssign
+           // TODO(max): Use beginning state instead of explicit VarAssign
            new ExprStmt(new VarAssign(new VarRef(0), new IntLit(0))),
            new IfStmt(
                new VarRef(0),
