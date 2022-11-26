@@ -813,8 +813,6 @@ void test_interpreter(ExprTest tests[]) {
   print_results(failed);
 }
 
-void compare_jit(Stmt* stmt);
-
 template <typename T>
 void test_interpreter(StmtTest tests[]) {
   std::vector<word> failed;
