@@ -304,8 +304,7 @@ class BaselineJIT : public JIT {
       }
       case ExprType::kVarRef: {
         int offset = static_cast<const VarRef*>(expr)->offset;
-        __ movq(RAX, varAt(offset));
-        __ pushq(RAX);
+        __ pushq(varAt(offset));
         break;
       }
       case ExprType::kVarAssign: {
