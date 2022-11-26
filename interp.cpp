@@ -248,7 +248,6 @@ class JIT : public Evaluator {
   virtual void emitPrologue() {
     as.pushq(RBP);
     as.movq(RBP, RSP);
-    as.subq(RSP, Immediate(kNumVars));
   }
 
   virtual void emitEpilogue() {
