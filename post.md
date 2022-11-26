@@ -393,39 +393,11 @@ int main() {
       {new ExprStmt(new IntLit(123)), State{}},
       {new ExprStmt(new VarAssign(new VarRef(3), new IntLit(123))),
        State{}.set(3, 123)},
-      {new BlockStmt({
-           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-           new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
-       }),
-       State{}.set(0, 123).set(1, 456)},
       {new IfStmt(new IntLit(1),
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
                   new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
        State{}.set(0, 123)},
-      {new IfStmt(new IntLit(7),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
-       State{}.set(0, 123)},
-      {new IfStmt(new IntLit(-7),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
-       State{}.set(0, 123)},
-      {new IfStmt(new IntLit(0),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
-       State{}.set(0, 456)},
-      {new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
-       State{}.set(0, 123)},
-      {new IfStmt(new LessThan(new IntLit(2), new IntLit(2)),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
-       State{}.set(0, 456)},
-      {new IfStmt(new LessThan(new IntLit(3), new IntLit(2)),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
-                  new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456)))),
-       State{}.set(0, 456)},
+      // ...
       {new BlockStmt({
            new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
            new ExprStmt(new VarAssign(new VarRef(1), new IntLit(456))),
@@ -433,7 +405,6 @@ int main() {
                new VarRef(2), new AddExpr(new VarRef(0), new VarRef(1)))),
        }),
        State{}.set(0, 123).set(1, 456).set(2, 123 + 456)},
-      // TODO(max): Test nested if
       {nullptr, State{}},  // Sentinel
   };
   // ...
