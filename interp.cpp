@@ -123,25 +123,25 @@ class Interpreter : public Evaluator {
   virtual word interpret(State* state, const Expr* expr) {
     switch (expr->type) {
       case ExprType::kIntLit: {
-        return reinterpret_cast<const IntLit*>(expr)->value;
+        return static_cast<const IntLit*>(expr)->value;
       }
       case ExprType::kAddExpr: {
-        auto add = reinterpret_cast<const AddExpr*>(expr);
+        auto add = static_cast<const AddExpr*>(expr);
         word left = interpret(state, add->left);
         word right = interpret(state, add->right);
         return left + right;
       }
       case ExprType::kVarRef: {
-        return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
+        return state->vars[static_cast<const VarRef*>(expr)->offset];
       }
       case ExprType::kVarAssign: {
-        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        auto assign = static_cast<const VarAssign*>(expr);
         word result = interpret(state, assign->right);
         state->vars[assign->left->offset] = result;
         return result;
       }
       case ExprType::kLessThan: {
-        auto less = reinterpret_cast<const LessThan*>(expr);
+        auto less = static_cast<const LessThan*>(expr);
         word left = interpret(state, less->left);
         word right = interpret(state, less->right);
         return left < right;
@@ -156,18 +156,18 @@ class Interpreter : public Evaluator {
   virtual void interpret(State* state, const Stmt* stmt) {
     switch (stmt->type) {
       case StmtType::kExpr: {
-        interpret(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
+        interpret(state, static_cast<const ExprStmt*>(stmt)->expr);
         break;
       }
       case StmtType::kBlock: {
-        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        auto block = static_cast<const BlockStmt*>(stmt);
         for (size_t i = 0; i < block->body.size(); i++) {
           interpret(state, block->body[i]);
         }
         break;
       }
       case StmtType::kIf: {
-        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        auto if_ = static_cast<const IfStmt*>(stmt);
         word result = interpret(state, if_->cond);
         if (result) {
           interpret(state, if_->cons);
@@ -282,12 +282,12 @@ class BaselineJIT : public JIT {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
-        word value = reinterpret_cast<const IntLit*>(expr)->value;
+        word value = static_cast<const IntLit*>(expr)->value;
         __ pushq(Immediate(value));
         break;
       }
       case ExprType::kAddExpr: {
-        auto add = reinterpret_cast<const AddExpr*>(expr);
+        auto add = static_cast<const AddExpr*>(expr);
         compileExprHelper(add->left);
         compileExprHelper(add->right);
         __ popq(tmp);
@@ -297,20 +297,20 @@ class BaselineJIT : public JIT {
         break;
       }
       case ExprType::kVarRef: {
-        int offset = reinterpret_cast<const VarRef*>(expr)->offset;
+        int offset = static_cast<const VarRef*>(expr)->offset;
         __ movq(RAX, varAt(offset));
         __ pushq(RAX);
         break;
       }
       case ExprType::kVarAssign: {
-        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        auto assign = static_cast<const VarAssign*>(expr);
         compileExprHelper(assign->right);
         __ movq(RAX, Address(RSP, 0));
         __ movq(varAt(assign->left->offset), RAX);
         break;
       }
       case ExprType::kLessThan: {
-        auto less = reinterpret_cast<const LessThan*>(expr);
+        auto less = static_cast<const LessThan*>(expr);
         compileExprHelper(less->left);
         compileExprHelper(less->right);
         __ popq(tmp);
@@ -331,19 +331,19 @@ class BaselineJIT : public JIT {
   virtual void compileStmt(const Stmt* stmt) {
     switch (stmt->type) {
       case StmtType::kExpr: {
-        compileExprHelper(reinterpret_cast<const ExprStmt*>(stmt)->expr);
+        compileExprHelper(static_cast<const ExprStmt*>(stmt)->expr);
         __ popq(RAX);
         break;
       }
       case StmtType::kBlock: {
-        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        auto block = static_cast<const BlockStmt*>(stmt);
         for (size_t i = 0; i < block->body.size(); i++) {
           compileStmt(block->body[i]);
         }
         break;
       }
       case StmtType::kIf: {
-        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        auto if_ = static_cast<const IfStmt*>(stmt);
         Label alt;
         Label exit;
         compileExprHelper(if_->cond);
@@ -378,12 +378,12 @@ class DestinationDrivenJIT : public JIT {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
-        int value = reinterpret_cast<const IntLit*>(expr)->value;
+        int value = static_cast<const IntLit*>(expr)->value;
         plug(dest, Immediate(value));
         break;
       }
       case ExprType::kAddExpr: {
-        auto add = reinterpret_cast<const AddExpr*>(expr);
+        auto add = static_cast<const AddExpr*>(expr);
         compileExpr(add->left, Destination::kStack);
         compileExpr(add->right, Destination::kAccumulator);
         __ popq(tmp);
@@ -392,19 +392,19 @@ class DestinationDrivenJIT : public JIT {
         break;
       }
       case ExprType::kVarRef: {
-        int offset = reinterpret_cast<const VarRef*>(expr)->offset;
+        int offset = static_cast<const VarRef*>(expr)->offset;
         plug(dest, varAt(offset));
         break;
       }
       case ExprType::kVarAssign: {
-        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        auto assign = static_cast<const VarAssign*>(expr);
         compileExpr(assign->right, Destination::kAccumulator);
         __ movq(varAt(assign->left->offset), RAX);
         plug(dest, RAX);
         break;
       }
       case ExprType::kLessThan: {
-        auto less = reinterpret_cast<const LessThan*>(expr);
+        auto less = static_cast<const LessThan*>(expr);
         compileExpr(less->left, Destination::kStack);
         compileExpr(less->right, Destination::kAccumulator);
         Label cons;
@@ -433,19 +433,19 @@ class DestinationDrivenJIT : public JIT {
   virtual void compileStmt(const Stmt* stmt) {
     switch (stmt->type) {
       case StmtType::kExpr: {
-        compileExpr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
+        compileExpr(static_cast<const ExprStmt*>(stmt)->expr,
                     Destination::kNowhere);
         break;
       }
       case StmtType::kBlock: {
-        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        auto block = static_cast<const BlockStmt*>(stmt);
         for (size_t i = 0; i < block->body.size(); i++) {
           compileStmt(block->body[i]);
         }
         break;
       }
       case StmtType::kIf: {
-        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        auto if_ = static_cast<const IfStmt*>(stmt);
         compileExpr(if_->cond, Destination::kAccumulator);
         Label alt;
         Label exit;
@@ -544,12 +544,12 @@ class ControlDestinationDrivenJIT : public JIT {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
-        word value = reinterpret_cast<const IntLit*>(expr)->value;
+        word value = static_cast<const IntLit*>(expr)->value;
         plug(dest, cdest, Immediate(value));
         break;
       }
       case ExprType::kAddExpr: {
-        auto add = reinterpret_cast<const AddExpr*>(expr);
+        auto add = static_cast<const AddExpr*>(expr);
         compileExpr(add->left, Destination::kStack, cdest);
         compileExpr(add->right, Destination::kAccumulator, cdest);
         __ popq(tmp);
@@ -558,19 +558,19 @@ class ControlDestinationDrivenJIT : public JIT {
         break;
       }
       case ExprType::kVarRef: {
-        word offset = reinterpret_cast<const VarRef*>(expr)->offset;
+        word offset = static_cast<const VarRef*>(expr)->offset;
         plug(dest, cdest, varAt(offset));
         break;
       }
       case ExprType::kVarAssign: {
-        auto assign = reinterpret_cast<const VarAssign*>(expr);
+        auto assign = static_cast<const VarAssign*>(expr);
         compileExpr(assign->right, Destination::kAccumulator, cdest);
         __ movq(varAt(assign->left->offset), RAX);
         plug(dest, cdest, RAX);
         break;
       }
       case ExprType::kLessThan: {
-        auto less = reinterpret_cast<const LessThan*>(expr);
+        auto less = static_cast<const LessThan*>(expr);
         compileExpr(less->left, Destination::kStack, cdest);
         compileExpr(less->right, Destination::kAccumulator, cdest);
         __ popq(tmp);
@@ -594,12 +594,12 @@ class ControlDestinationDrivenJIT : public JIT {
   virtual void compileStmt(const Stmt* stmt, ControlDestination cdest) {
     switch (stmt->type) {
       case StmtType::kExpr: {
-        compileExpr(reinterpret_cast<const ExprStmt*>(stmt)->expr,
+        compileExpr(static_cast<const ExprStmt*>(stmt)->expr,
                     Destination::kNowhere, cdest);
         break;
       }
       case StmtType::kBlock: {
-        auto block = reinterpret_cast<const BlockStmt*>(stmt);
+        auto block = static_cast<const BlockStmt*>(stmt);
         for (size_t i = 0; i < block->body.size(); i++) {
           Label next;
           compileStmt(block->body[i], ControlDestination(&next, &next, &next));
@@ -608,7 +608,7 @@ class ControlDestinationDrivenJIT : public JIT {
         break;
       }
       case StmtType::kIf: {
-        auto if_ = reinterpret_cast<const IfStmt*>(stmt);
+        auto if_ = static_cast<const IfStmt*>(stmt);
         Label cons;
         Label alt;
         Label exit;
