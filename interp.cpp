@@ -463,6 +463,7 @@ class DestinationDrivenJIT : public JIT {
       }
       default: {
         UNREACHABLE("unsupported stmt type");
+        break;
       }
     }
   }
