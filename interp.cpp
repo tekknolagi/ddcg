@@ -93,7 +93,7 @@ struct IfStmt : public Stmt {
   Stmt* alt;
 };
 
-constexpr int kNumVars = 26;
+constexpr word kNumVars = 26;
 
 struct State {
   State set(word offset, word value) const {
@@ -303,7 +303,7 @@ class BaselineJIT : public JIT {
         break;
       }
       case ExprType::kVarRef: {
-        int offset = static_cast<const VarRef*>(expr)->offset;
+        word offset = static_cast<const VarRef*>(expr)->offset;
         __ pushq(varAt(offset));
         break;
       }
@@ -389,7 +389,7 @@ class DestinationDrivenJIT : public JIT {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
-        int value = static_cast<const IntLit*>(expr)->value;
+        word value = static_cast<const IntLit*>(expr)->value;
         plug(dest, Immediate(value));
         break;
       }
@@ -403,7 +403,7 @@ class DestinationDrivenJIT : public JIT {
         break;
       }
       case ExprType::kVarRef: {
-        int offset = static_cast<const VarRef*>(expr)->offset;
+        word offset = static_cast<const VarRef*>(expr)->offset;
         plug(dest, varAt(offset));
         break;
       }
