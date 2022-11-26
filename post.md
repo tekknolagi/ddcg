@@ -453,10 +453,12 @@ talk, meaning that we'll look at three different compilers:
 That way we can compare results across the board. We won't look at performance
 (see [my commentary](/inline-caching/#performance-analysis) on performance
 analysis, which I should probably turn into a separate post). Instead we will
-look at instruction counts as a proxy. Maybe someone more enterprising could
-also count stack spills and loads, too.
+look at one or two assembly listings across the different implementations and
+note the differences.
 
-Here is the abstract JIT compiler:
+To organize the implementations, we have an abstract JIT that does a lot of the
+assembler and code management. It also has some utility functions like `varAt`
+that put together the memory addressing mode for a given variable index.
 
 ```c++
 class JIT : public Evaluator {
@@ -477,9 +479,30 @@ class JIT : public Evaluator {
   }
 
   virtual void compileExpr(const Expr* expr) = 0;
+  virtual void compileStmt(const Stmt* stmt) = 0;
   // ...
 };
 ```
+
+`compileExpr` and `compileStmt` are left as exercises for the subclasses.
+
+All of the implementations will be using a version of the [Dart][dart-sdk]
+assembler that was ported for the [Skybison][skybison] project a couple of
+years ago. It's nice because it's only a couple of files but provides a C++-y
+x86_64 assembler interface.
+
+[dart-sdk]: https://github.com/dart-lang/sdk
+[skybison]: https://github.com/tekknolagi/skybison
+
+Assembling instructions from C++ will look like:
+
+```c++
+void emitAdd(Assembler* as) {
+  __ addq(RAX, RCX);
+}
+```
+
+Where `__` is a shorthand for `as.` to avoid visual clutter.
 
 ### Baseline
 
@@ -489,7 +512,18 @@ writing the compiler, I broke a number of tests. It was really valuable to have
 a bunch of tests that exercise different combinations of expression types,
 since those can isolate compiler bugs.
 
-Here is the baseline JIT:
+We'll start off with the baseline compiler, which emits very straightforward
+context-unaware code. Compiling `AddExpr`, for example, uses the stack heavily:
+
+* compile left hand side, store on stack
+* compile right hand side, store on stack
+* pop from stack
+* add
+* store result on stack
+
+It's very convenient to be able to treat the hardware as a stack machine. I
+think I got this codegen right the first time, which is *very* different from
+my experience with the other techniques.
 
 ```c++
 class BaselineJIT : public JIT {
@@ -501,6 +535,8 @@ class BaselineJIT : public JIT {
   }
 
   void compileExprHelper(const Expr* expr) {
+    // RCX is caller-saved, meaning that callees (our code) can do whatever we
+    // want with it.
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
@@ -520,13 +556,13 @@ class BaselineJIT : public JIT {
       }
       case ExprType::kVarRef: {
         int offset = static_cast<const VarRef*>(expr)->offset;
-        __ movq(RAX, varAt(offset));
-        __ pushq(RAX);
+        __ pushq(varAt(offset));
         break;
       }
       case ExprType::kVarAssign: {
         auto assign = static_cast<const VarAssign*>(expr);
         compileExprHelper(assign->right);
+        // Leave the value on the stack for assignment chains like a = b = 1
         __ movq(RAX, Address(RSP, 0));
         __ movq(varAt(assign->left->offset), RAX);
         break;
@@ -553,7 +589,113 @@ class BaselineJIT : public JIT {
 };
 ```
 
+Let's look at a sample bit of code generated for adding two numbers:
+
+```c++
+Expr* expr = new AddExpr(new IntLit(123), new IntLit(456));
+BaselineJIT jit;
+State state;
+jit.interpret(&state, expr);
+jit.dis();
+fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
+// 0x621000057900    55                     push rbp
+// 0x621000057901    4889e5                 movq rbp,rsp
+// 0x621000057904    6a7b                   push 0X7B
+// 0x621000057906    68c8010000             push 0X1C8
+// 0x62100005790B    59                     pop rcx
+// 0x62100005790C    58                     pop rax
+// 0x62100005790D    4803c1                 addq rax,rcx
+// 0x621000057910    50                     push rax
+// 0x621000057911    58                     pop rax
+// 0x621000057912    4889ec                 movq rsp,rbp
+// 0x621000057915    5d                     pop rbp
+// 0x621000057916    c3                     ret
+// code size: 23 bytes
+```
+
+See all of the stack motion? We push `0x7B` and `0x1C8` only to immediately pop
+them again---and the same thing with the result. It's all a bit silly. If I
+were writing this by hand, I would probably write something like:
+
+```
+mov rax, 123
+mov rcx, 456
+add rax, rcx
+```
+
+Now let's look at some code generated for an `IfStmt` with a `LessThan`
+operator:
+
+```c++
+Stmt* stmt = new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
+                new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456))));
+BaselineJIT jit;
+State state;
+jit.interpret(&state, stmt);
+jit.dis();
+fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
+// 0x621000057900    55                     push rbp
+// 0x621000057901    4889e5                 movq rbp,rsp
+// 0x621000057904    6a01                   push 1
+// 0x621000057906    6a02                   push 2
+// 0x621000057908    59                     pop rcx
+// 0x621000057909    58                     pop rax
+// 0x62100005790A    482bc1                 subq rax,rcx
+// 0x62100005790D    b800000000             movl rax,0
+// 0x621000057912    0f9cc0                 setll rax
+// 0x621000057915    50                     push rax
+// 0x621000057916    58                     pop rax
+// 0x621000057917    4885c0                 testq rax,rax
+// 0x62100005791A    740c                   jz 0X0000621000057928
+// 0x62100005791C    6a7b                   push 0X7B
+// 0x62100005791E    488b0424               movq rax,[rsp]
+// 0x621000057922    488907                 movq [rdi],rax
+// 0x621000057925    58                     pop rax
+// 0x621000057926    eb0d                   jmp 0X0000621000057935
+// 0x621000057928    68c8010000             push 0X1C8
+// 0x62100005792D    488b0424               movq rax,[rsp]
+// 0x621000057931    488907                 movq [rdi],rax
+// 0x621000057934    58                     pop rax
+// 0x621000057935    4889ec                 movq rsp,rbp
+// 0x621000057938    5d                     pop rbp
+// 0x621000057939    c3                     ret
+// code size: 58 bytes
+```
+
+This code is also not great. In fact, it's positively enormous! Not only do we
+push and pop our inputs to the stack, but we also materialize the result of the
+comparison (`subq`) and then test *that* (`testq`) for the `IfStmt`. There is
+no need to do this: we should instead be able to use the flags already set by
+the `subq`.
+
+Let's try to figure out how to improve it.
+
 ### Destination-driven
+
+```c++
+Expr* expr = new AddExpr(new IntLit(123), new IntLit(456));
+DestinationDrivenJIT jit;
+State state;
+jit.interpret(&state, expr);
+jit.dis();
+fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
+// 0x621000057900    55                     push rbp
+// 0x621000057901    4889e5                 movq rbp,rsp
+// 0x621000057904    6a7b                   push 0X7B
+// 0x621000057906    b8c8010000             movl rax,0X1C8
+// 0x62100005790B    59                     pop rcx
+// 0x62100005790C    4803c1                 addq rax,rcx
+// 0x62100005790F    4889ec                 movq rsp,rbp
+// 0x621000057912    5d                     pop rbp
+// 0x621000057913    c3                     ret
+// code size: 20 bytes
+```
+
+If you compare with the baseline code, you can see right off the bat that there
+is less stack activity: yes, we push `0x7B`, but we move `0x1C8` into a
+register, `RCX`. Then we don't push and pop the result! We just keep it in
+`RAX`. A huge improvement.
 
 ### Add control destinations
 
