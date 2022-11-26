@@ -186,11 +186,6 @@ class Interpreter : public Evaluator {
 
 #define __ as.
 
-enum class Destination {
-  kStack,
-  kAccumulator,
-  kNowhere,
-};
 
 // TODO(max): Fix camelCase vs snake_case naming conventions in this file
 
@@ -377,6 +372,12 @@ class BaselineJIT : public JIT {
       }
     }
   }
+};
+
+enum class Destination {
+  kStack,
+  kAccumulator,
+  kNowhere,
 };
 
 class DestinationDrivenJIT : public JIT {
