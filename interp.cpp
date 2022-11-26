@@ -514,7 +514,7 @@ class DestinationDrivenJIT : public JIT {
   }
 
   void plug(Destination dest, Address mem) {
-    Register tmp = RBX;
+    Register tmp = RCX;
     switch (dest) {
       case Destination::kStack: {
         __ movq(tmp, mem);
