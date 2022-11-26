@@ -655,8 +655,10 @@ class ControlDestinationDrivenJIT : public JIT {
         if (cdest.fallthrough == cdest.cons) {
           __ jcc(invert(cond), cdest.alt, Assembler::kNearJump);
         } else if (cdest.fallthrough == cdest.alt) {
+          UNREACHABLE("TODO(max): Figure out how to generate");
           __ jcc(cond, cdest.cons, Assembler::kNearJump);
         } else {
+          UNREACHABLE("TODO(max): Figure out how to generate");
           __ jcc(cond, cdest.cons, Assembler::kNearJump);
           __ jmp(cdest.alt, Assembler::kNearJump);
         }
@@ -680,12 +682,15 @@ class ControlDestinationDrivenJIT : public JIT {
         // an ExprStmt.
         if (imm.value()) {
           if (cdest.cons != cdest.fallthrough) {
+            UNREACHABLE("TODO(max): Figure out how to generate");
             __ jmp(cdest.cons, Assembler::kNearJump);
           }
+          // Fall through to consequent label.
         } else {
           if (cdest.alt != cdest.fallthrough) {
             __ jmp(cdest.alt, Assembler::kNearJump);
           }
+          // Fall through to alternate label.
         }
         break;
       }
