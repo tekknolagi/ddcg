@@ -710,8 +710,10 @@ class ControlDestinationDrivenJIT : public JIT {
     if (cdest.fallthrough == cdest.cons) {
       __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
     } else if (cdest.fallthrough == cdest.alt) {
+      UNREACHABLE("TODO(max): Figure out how to generate");
       __ jcc(NOT_EQUAL, cdest.cons, Assembler::kNearJump);
     } else {
+      UNREACHABLE("TODO(max): Figure out how to generate");
       __ jcc(NOT_EQUAL, cdest.cons, Assembler::kNearJump);
       __ jmp(cdest.alt, Assembler::kNearJump);
     }
