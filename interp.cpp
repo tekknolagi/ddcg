@@ -524,6 +524,7 @@ struct ControlDestination {
   explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
   explicit ControlDestination(Label* cons, Label* alt, Label* fallthrough)
       : cons(cons), alt(alt), fallthrough(fallthrough) {}
+  bool isUseful() const { return !(cons == alt && alt == fallthrough); }
   Label* cons{nullptr};
   Label* alt{nullptr};
   Label* fallthrough{nullptr};
@@ -677,19 +678,15 @@ class ControlDestinationDrivenJIT : public JIT {
         break;
       }
       case Destination::kNowhere: {
-        // Nothing to do; not supposed to be materialized anywhere. Likely from
-        // an ExprStmt.
+        if (!cdest.isUseful()) {
+          // Nothing to do; not supposed to be materialized anywhere. Likely
+          // from an ExprStmt.
+          return;
+        }
         if (imm.value()) {
-          if (cdest.cons != cdest.fallthrough) {
-            UNREACHABLE("TODO(max): Figure out how to generate");
-            __ jmp(cdest.cons, Assembler::kNearJump);
-          }
-          // Fall through to consequent label.
+          __ jmp(cdest.cons, Assembler::kNearJump);
         } else {
-          if (cdest.alt != cdest.fallthrough) {
-            __ jmp(cdest.alt, Assembler::kNearJump);
-          }
-          // Fall through to alternate label.
+          __ jmp(cdest.alt, Assembler::kNearJump);
         }
         break;
       }
@@ -698,6 +695,12 @@ class ControlDestinationDrivenJIT : public JIT {
 
   template <typename T>
   void jmpTruthiness(T op, ControlDestination cdest) {
+    if (!cdest.isUseful()) {
+      // Sometimes the input is ControlDestination(next, next, next), in which
+      // case there is no need at all to check the truthiness of the input.
+      // Nobody depends on it.
+      return;
+    }
     __ cmpq(op, Immediate(0));
     if (cdest.fallthrough == cdest.cons) {
       __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
