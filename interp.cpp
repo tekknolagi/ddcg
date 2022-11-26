@@ -259,6 +259,14 @@ class JIT : public Evaluator {
 
   word codeSize() const { return as.codeSize(); }
 
+  void dis() {
+    fprintf(stderr, "----\n");
+    uword address = as.codeAddress(0);
+    dis::DisassembleToStdout dis_stdout;
+    dis::Disassembler dis;
+    dis.disassemble(address, address + codeSize(), &dis_stdout);
+  }
+
   Address varAt(word index) {
     return Address(RDI, index * sizeof(State{}.vars[0]));
   }
@@ -798,6 +806,8 @@ void test_interpreter(ExprTest tests[]) {
   print_results(failed);
 }
 
+void compare_jit(Stmt* stmt);
+
 template <typename T>
 void test_interpreter(StmtTest tests[]) {
   std::vector<word> failed;
@@ -813,6 +823,31 @@ void test_interpreter(StmtTest tests[]) {
   }
   fprintf(stderr, "\n");
   print_results(failed);
+}
+
+template <typename T>
+word code_size(Stmt* stmt) {
+  T jit;
+  jit.compileStmt(stmt);
+  jit.dis();
+  return jit.codeSize();
+}
+
+word perc_change(word before, word after) {
+  CHECK(before != 0, "can't divide by 0");
+  return static_cast<word>((after - before) / static_cast<double>(before) *
+                           100);
+}
+
+void compare_jit(Stmt* stmt) {
+  word baseline_size = code_size<BaselineJIT>(stmt);
+  word dest_driven_size = code_size<DestinationDrivenJIT>(stmt);
+  word control_dest_size = code_size<ControlDestinationDrivenJIT>(stmt);
+  fprintf(stderr, "b: %ld\td: %ld (%ld%%)\tc: %ld (%ld%%)\n", baseline_size,
+          dest_driven_size, perc_change(baseline_size, dest_driven_size),
+          control_dest_size, perc_change(baseline_size, control_dest_size));
+  CHECK(control_dest_size <= dest_driven_size,
+        "control destinations didn't help code size!");
 }
 
 int main() {
@@ -897,6 +932,17 @@ int main() {
 
        }),
        State{}.set(0, 0).set(1, 3)},
+      {new BlockStmt({
+           // TODO(max): Use beginning state instead of explicit VarAssign
+           new ExprStmt(new VarAssign(
+               new VarRef(0), new AddExpr(new IntLit(1), new IntLit(1)))),
+           new IfStmt(
+               new VarRef(0),
+               new ExprStmt(new VarAssign(new VarRef(1), new IntLit(2))),
+               new ExprStmt(new VarAssign(new VarRef(1), new IntLit(3)))),
+
+       }),
+       State{}.set(0, 2).set(1, 2)},
       // TODO(max): Test nested if
       {nullptr, State{}},
   };
