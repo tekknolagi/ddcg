@@ -774,7 +774,7 @@ void print_results(const std::vector<word>& failed) {
 }
 
 template <typename T>
-void test_interp(ExprTest tests[]) {
+void test_interpreter(ExprTest tests[]) {
   std::vector<word> failed;
   for (word i = 0; tests[i].expr != nullptr; i++) {
     word result = T{}.interpret(&tests[i].state, tests[i].expr);
@@ -790,7 +790,7 @@ void test_interp(ExprTest tests[]) {
 }
 
 template <typename T>
-void test_interp(StmtTest tests[]) {
+void test_interpreter(StmtTest tests[]) {
   std::vector<word> failed;
   for (word i = 0; tests[i].stmt != nullptr; i++) {
     State state;
@@ -892,19 +892,19 @@ int main() {
       {nullptr, State{}},
   };
   fprintf(stderr, "Testing interpreter (expr) ");
-  test_interp<Interpreter>(expr_tests);
+  test_interpreter<Interpreter>(expr_tests);
   fprintf(stderr, "Testing interpreter (stmt) ");
-  test_interp<Interpreter>(stmt_tests);
+  test_interpreter<Interpreter>(stmt_tests);
   fprintf(stderr, "Testing baseline jit (expr) ");
-  test_interp<BaselineJIT>(expr_tests);
+  test_interpreter<BaselineJIT>(expr_tests);
   fprintf(stderr, "Testing baseline jit (stmt) ");
-  test_interp<BaselineJIT>(stmt_tests);
+  test_interpreter<BaselineJIT>(stmt_tests);
   fprintf(stderr, "Testing destination jit (expr) ");
-  test_interp<DestinationDrivenJIT>(expr_tests);
+  test_interpreter<DestinationDrivenJIT>(expr_tests);
   fprintf(stderr, "Testing destination jit (stmt) ");
-  test_interp<DestinationDrivenJIT>(stmt_tests);
+  test_interpreter<DestinationDrivenJIT>(stmt_tests);
   fprintf(stderr, "Testing control destination jit (expr) ");
-  test_interp<ControlDestinationDrivenJIT>(expr_tests);
+  test_interpreter<ControlDestinationDrivenJIT>(expr_tests);
   fprintf(stderr, "Testing control destination jit (stmt) ");
-  test_interp<ControlDestinationDrivenJIT>(stmt_tests);
+  test_interpreter<ControlDestinationDrivenJIT>(stmt_tests);
 }
