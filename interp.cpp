@@ -792,14 +792,22 @@ void print_results(const std::vector<word>& failed) {
 template <typename T>
 void test_interpreter(ExprTest tests[]) {
   std::vector<word> failed;
+  word total_size = 0;
   for (word i = 0; tests[i].expr != nullptr; i++) {
-    word result = T{}.interpret(&tests[i].state, tests[i].expr);
+    T impl;
+    word result = impl.interpret(&tests[i].state, tests[i].expr);
+    if (std::is_base_of<JIT, T>::value) {
+      total_size += reinterpret_cast<JIT*>(&impl)->codeSize();
+    }
     if (result == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
       failed.push_back(i);
       fprintf(stderr, "E");
     }
+  }
+  if (total_size) {
+    fprintf(stderr, " (%ld bytes)", total_size);
   }
   fprintf(stderr, "\n");
   print_results(failed);
@@ -810,15 +818,23 @@ void compare_jit(Stmt* stmt);
 template <typename T>
 void test_interpreter(StmtTest tests[]) {
   std::vector<word> failed;
+  word total_size = 0;
   for (word i = 0; tests[i].stmt != nullptr; i++) {
     State state;
-    T{}.interpret(&state, tests[i].stmt);
+    T impl;
+    impl.interpret(&state, tests[i].stmt);
+    if (std::is_base_of<JIT, T>::value) {
+      total_size += reinterpret_cast<JIT*>(&impl)->codeSize();
+    }
     if (state == tests[i].expected) {
       fprintf(stderr, ".");
     } else {
       failed.push_back(i);
       fprintf(stderr, "E");
     }
+  }
+  if (total_size) {
+    fprintf(stderr, " (%ld bytes)", total_size);
   }
   fprintf(stderr, "\n");
   print_results(failed);
