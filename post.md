@@ -485,6 +485,31 @@ analysis, which I should probably turn into a separate post). Instead we will
 look at instruction counts as a proxy. Maybe someone more enterprising could
 also count stack spills and loads, too.
 
+Here is the abstract JIT compiler:
+
+```c++
+class JIT : public Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) {
+    emitPrologue();
+    compileExpr(expr);
+    emitEpilogue();
+    MemoryRegion region = finalizeCode(&as);
+    JitFunction function = codeAsFunction(region);
+    word result = function(state->vars);
+    unmapCode(region);
+    return result;
+  }
+
+  Address varAt(word index) {
+    return Address(RDI, index * sizeof(word));
+  }
+
+  virtual void compileExpr(const Expr* expr) = 0;
+  // ...
+};
+```
+
 ### Baseline
 
 Now that we've expressed our desired behavior in the form of a test suite, we
@@ -492,6 +517,70 @@ can change the implementation and maybe see if we've broken things. When I was
 writing the compiler, I broke a number of tests. It was really valuable to have
 a bunch of tests that exercise different combinations of expression types,
 since those can isolate compiler bugs.
+
+Here is the baseline JIT:
+
+```c++
+class BaselineJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    compileExprHelper(expr);
+    // Return the value from the top of the stack.
+    __ popq(RAX);
+  }
+
+  void compileExprHelper(const Expr* expr) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        word value = static_cast<const IntLit*>(expr)->value;
+        __ pushq(Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = static_cast<const AddExpr*>(expr);
+        compileExprHelper(add->left);
+        compileExprHelper(add->right);
+        __ popq(tmp);
+        __ popq(RAX);
+        __ addq(RAX, tmp);
+        __ pushq(RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        int offset = static_cast<const VarRef*>(expr)->offset;
+        __ movq(RAX, varAt(offset));
+        __ pushq(RAX);
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = static_cast<const VarAssign*>(expr);
+        compileExprHelper(assign->right);
+        __ movq(RAX, Address(RSP, 0));
+        __ movq(varAt(assign->left->offset), RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = static_cast<const LessThan*>(expr);
+        compileExprHelper(less->left);
+        compileExprHelper(less->right);
+        __ popq(tmp);
+        __ popq(RAX);
+        __ subq(RAX, tmp);
+        __ movq(RAX, Immediate(0));
+        __ setcc(LESS, RAX);
+        __ pushq(RAX);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+  // ...
+};
+```
 
 ### Destination-driven
 
