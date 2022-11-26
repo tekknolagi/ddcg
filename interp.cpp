@@ -348,7 +348,7 @@ class BaselineJIT : public JIT {
         Label exit;
         compileExprHelper(if_->cond);
         __ popq(RAX);
-        __ cmpq(RAX, Immediate(0));
+        __ andq(RAX, RAX);
         __ jcc(EQUAL, &alt, Assembler::kNearJump);
         // true:
         compileStmt(if_->cons);
