@@ -462,8 +462,7 @@ class DestinationDrivenJIT : public JIT {
         break;
       }
       default: {
-        std::fprintf(stderr, "unsupported stmt type\n");
-        std::abort();
+        UNREACHABLE("unsupported stmt type");
       }
     }
   }
