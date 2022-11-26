@@ -555,7 +555,7 @@ class BaselineJIT : public JIT {
         break;
       }
       case ExprType::kVarRef: {
-        int offset = static_cast<const VarRef*>(expr)->offset;
+        word offset = static_cast<const VarRef*>(expr)->offset;
         __ pushq(varAt(offset));
         break;
       }
@@ -623,8 +623,58 @@ mov rcx, 456
 add rax, rcx
 ```
 
-Now let's look at some code generated for an `IfStmt` with a `LessThan`
-operator:
+The statement compilation code is not so remarkable except for `IfStmt`. In
+`IfStmt`, we pull the condition off the stack and jump to either the consequent
+or the alternate code paths. Then they both jump or fall through to the next
+bit of code (`exit`).
+
+```c++
+class BaselineJIT : public JIT {
+ public:
+  virtual void compileStmt(const Stmt* stmt) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExprHelper(static_cast<const ExprStmt*>(stmt)->expr);
+        __ popq(RAX);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = static_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          compileStmt(block->body[i]);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = static_cast<const IfStmt*>(stmt);
+        Label alt;
+        Label exit;
+        compileExprHelper(if_->cond);
+        __ popq(RAX);
+        cmpZero(RAX);
+        __ jcc(EQUAL, &alt, Assembler::kNearJump);
+        // true:
+        compileStmt(if_->cons);
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
+  }
+};
+```
+
+Which looks just fine. Sure, there's a little stack action, but that's par for
+the course in this compiler. Let's look at some code generated for an `IfStmt`
+with a `LessThan` operator:
 
 ```c++
 Stmt* stmt = new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
@@ -663,7 +713,7 @@ fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
 // code size: 58 bytes
 ```
 
-This code is also not great. In fact, it's positively enormous! Not only do we
+Ah, this code is not great. In fact, it's positively enormous! Not only do we
 push and pop our inputs to the stack, but we also materialize the result of the
 comparison (`subq`) and then test *that* (`testq`) for the `IfStmt`. There is
 no need to do this: we should instead be able to use the flags already set by
@@ -672,6 +722,102 @@ the `subq`.
 Let's try to figure out how to improve it.
 
 ### Destination-driven
+
+The first approach we'll try is destination-driven code generation. Just the
+destination, not the "control destination". Since the compiler has an idea
+about where it wants its result to end up, it can guide compilation of
+sub-expressions instead of expecting everything to end up on the stack.
+
+We have three possible destinations: the stack (as before), an accumulator
+(`RAX`), and something totally different, "nowhere". This helps fix the
+`ExprStmt`, for example, where we push data on the stack only to throw it away
+immediately after.
+
+```c++
+enum class Destination {
+  kStack,
+  kAccumulator,
+  kNowhere,
+};
+```
+
+Let's take a look at how we do this. Ignore the `plug` function for now; we'll
+talk about it in a minute. You can think of it as a smarter compile-time `mov`
+instruction.
+
+To compare implementations, let's take a look at `AddExpr`. Instead of pushing
+both the intermediate results on the stack, we only need to push one. The other
+we can store directly in `RAX`, since we know we are going to use it
+immediately and it's not going to get overwritten. This saves some stack
+traffic.
+
+```c++
+class DestinationDrivenJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    compileExpr(expr, Destination::kAccumulator);
+  }
+
+  void compileExpr(const Expr* expr, Destination dest) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        word value = static_cast<const IntLit*>(expr)->value;
+        plug(dest, Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = static_cast<const AddExpr*>(expr);
+        compileExpr(add->left, Destination::kStack);
+        compileExpr(add->right, Destination::kAccumulator);
+        __ popq(tmp);
+        __ addq(RAX, tmp);
+        plug(dest, RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        word offset = static_cast<const VarRef*>(expr)->offset;
+        plug(dest, varAt(offset));
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = static_cast<const VarAssign*>(expr);
+        compileExpr(assign->right, Destination::kAccumulator);
+        __ movq(varAt(assign->left->offset), RAX);
+        plug(dest, RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = static_cast<const LessThan*>(expr);
+        compileExpr(less->left, Destination::kStack);
+        compileExpr(less->right, Destination::kAccumulator);
+        Label cons;
+        Label alt;
+        Label exit;
+        __ popq(tmp);
+        __ cmpq(tmp, RAX);
+        __ jcc(GREATER_EQUAL, &alt, Assembler::kNearJump);
+        // true:
+        plug(dest, Immediate(1));
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        plug(dest, Immediate(0));
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+  // ...
+};
+```
+
+Let's verify by looking at the generated code.
 
 ```c++
 Expr* expr = new AddExpr(new IntLit(123), new IntLit(456));
@@ -696,6 +842,160 @@ If you compare with the baseline code, you can see right off the bat that there
 is less stack activity: yes, we push `0x7B`, but we move `0x1C8` into a
 register, `RCX`. Then we don't push and pop the result! We just keep it in
 `RAX`. A huge improvement.
+
+Now let's compile some statements. See that `ExprStmt` puts its result in
+"nowhere".
+
+```c++
+class DestinationDrivenJIT : public JIT {
+ public:
+  // ...
+  virtual void compileStmt(const Stmt* stmt) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExpr(static_cast<const ExprStmt*>(stmt)->expr,
+                    Destination::kNowhere);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = static_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          compileStmt(block->body[i]);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = static_cast<const IfStmt*>(stmt);
+        compileExpr(if_->cond, Destination::kAccumulator);
+        Label alt;
+        Label exit;
+        cmpZero(RAX);  // check if falsey
+        __ jcc(EQUAL, &alt, Assembler::kNearJump);
+        // true:
+        compileStmt(if_->cons);
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
+  }
+```
+
+Okay, now let's talk about `plug`. This function is the connective glue between
+the computation. There are three functions, but really nine different variants.
+This would probably be one function in a language with pattern matching, but
+here we are.
+
+These functions are thoroughly unremarkable because they look like they do what
+we were doing before, but they cut out a lot of the intermediate data motion.
+No need to pass an immediate through the stack if we want it to end up in RAX.
+No need to push something to the stack only to drop it. etc.
+
+```c++
+class DestinationDrivenJIT : public JIT {
+ public:
+  // ...
+  void plug(Destination dest, Immediate imm) {
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(imm);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, imm);
+        break;
+      }
+      case Destination::kNowhere: {
+        // Nothing to do
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, Register reg) {
+    // We don't (yet?) generate code that tries to move any register other than
+    // RAX. This is not a fundamental limitation.
+    DCHECK(reg == RAX, "unimplemented: moving non-RAX registers");
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(reg);
+        break;
+      }
+      case Destination::kAccumulator:
+      case Destination::kNowhere: {
+        // Nothing to do
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, Address mem) {
+    Register tmp = RCX;
+    switch (dest) {
+      case Destination::kStack: {
+        __ movq(tmp, mem);
+        __ pushq(tmp);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, mem);
+        break;
+      }
+      case Destination::kNowhere: {
+        // Nothing to do
+        break;
+      }
+    }
+  }
+};
+```
+
+The generated code for the `IfStmt` example is slightly less impressive than
+for `AddExpr`. While it reduces the number of instructions and elides the
+`setcc` dance, there is still a bunch of jumping around.
+
+```c++
+Stmt* stmt = new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
+                new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+                new ExprStmt(new VarAssign(new VarRef(0), new IntLit(456))));
+DestinationDrivenJIT jit;
+State state;
+jit.interpret(&state, stmt);
+jit.dis();
+fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
+// 0x621000057900    55                     push rbp
+// 0x621000057901    4889e5                 movq rbp,rsp
+// 0x621000057904    6a01                   push 1
+// 0x621000057906    b802000000             movl rax,2
+// 0x62100005790B    59                     pop rcx
+// 0x62100005790C    483bc8                 cmpq rcx,rax
+// 0x62100005790F    7d07                   jge 0X0000621000057918
+// 0x621000057911    b801000000             movl rax,1
+// 0x621000057916    eb05                   jmp 0X000062100005791D
+// 0x621000057918    b800000000             movl rax,0
+// 0x62100005791D    4885c0                 testq rax,rax
+// 0x621000057920    740a                   jz 0X000062100005792C
+// 0x621000057922    b87b000000             movl rax,0X7B
+// 0x621000057927    488907                 movq [rdi],rax
+// 0x62100005792A    eb08                   jmp 0X0000621000057934
+// 0x62100005792C    b8c8010000             movl rax,0X1C8
+// 0x621000057931    488907                 movq [rdi],rax
+// 0x621000057934    4889ec                 movq rsp,rbp
+// 0x621000057937    5d                     pop rbp
+// 0x621000057938    c3                     ret
+// code size: 57 bytes
+```
+
+The good news is that we can remove the jumping around with *control
+destinations*.
 
 ### Add control destinations
 
