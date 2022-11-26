@@ -83,6 +83,7 @@ up with the types shown in the talk. There are five types of expression:
 and an abstract base class.
 
 ```c++
+// Shorthand for a machine word's worth of data.
 typedef intptr_t word;
 
 enum class ExprType {
@@ -205,7 +206,7 @@ variables. This would normally be part of the native call frame, probably an
 array starting at the base pointer (RBP).
 
 ```c++
-constexpr int kNumVars = 26;
+constexpr word kNumVars = 26;
 
 struct State {
   State set(word offset, word value) const {
@@ -216,7 +217,7 @@ struct State {
   // operator== is used for testing only, to check for the desired variable
   // assignment effects
   bool operator==(const State& other) {
-    for (size_t i = 0; i < kNumVars; i++) {
+    for (word i = 0; i < kNumVars; i++) {
       if (vars[i] != other.vars[i]) {
         return false;
       }
@@ -234,82 +235,103 @@ variable names and cleanly map those to indices... but that never materialized.
 
 ## Interpreter
 
-So! Now we have our datatypes. The interpreter is a little tree-walk
-interpreter. It takes in a `State` to mutate and an `Expr` to evaluate.
+So! Now we have our datatypes. Let's think about how we want to structure our
+interpreter. In abstract, we have two functions: one to evaluate expressions
+and one to evaluate statements. Both need a `State` because both can have side
+effects.
 
 ```c++
-word interpret_expr(State* state, const Expr* expr) {
-  switch (expr->type) {
-    case ExprType::kIntLit: {
-      return reinterpret_cast<const IntLit*>(expr)->value;
-    }
-    case ExprType::kAddExpr: {
-      auto add = reinterpret_cast<const AddExpr*>(expr);
-      word left = interpret_expr(state, add->left);
-      word right = interpret_expr(state, add->right);
-      return left + right;
-    }
-    case ExprType::kVarRef: {
-      return state->vars[reinterpret_cast<const VarRef*>(expr)->offset];
-    }
-    case ExprType::kVarAssign: {
-      auto assign = reinterpret_cast<const VarAssign*>(expr);
-      word result = interpret_expr(state, assign->right);
-      state->vars[assign->left->offset] = result;
-      return result;
-    }
-    case ExprType::kLessThan: {
-      auto less = reinterpret_cast<const LessThan*>(expr);
-      word left = interpret_expr(state, less->left);
-      word right = interpret_expr(state, less->right);
-      return left < right;
-    }
-    default: {
-      UNREACHABLE("unsupported expr type");
-      break;
-    }
-  }
-}
+class Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) = 0;
+  virtual void interpret(State* state, const Stmt* stmt) = 0;
+};
 ```
 
-Note that `interpret_expr` returns an `int` because expressions have values.
-`interpret_stmt`, on the other hand, returns no values:
+Our first evaluator is a little tree-walk interpreter. It implements both
+functions. Here's the expression evaluator:
 
-```
-void interpret_stmt(State* state, const Stmt* stmt) {
-  switch (stmt->type) {
-    case StmtType::kExpr: {
-      interpret_expr(state, reinterpret_cast<const ExprStmt*>(stmt)->expr);
-      break;
-    }
-    case StmtType::kBlock: {
-      auto block = reinterpret_cast<const BlockStmt*>(stmt);
-      for (size_t i = 0; i < block->body.size(); i++) {
-        interpret_stmt(state, block->body[i]);
+```c++
+class Interpreter : public Evaluator {
+ public:
+  virtual word interpret(State* state, const Expr* expr) {
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        return static_cast<const IntLit*>(expr)->value;
       }
-      break;
-    }
-    case StmtType::kIf: {
-      auto if_ = reinterpret_cast<const IfStmt*>(stmt);
-      word result = interpret_expr(state, if_->cond);
-      if (result) {
-        interpret_stmt(state, if_->cons);
-      } else {
-        interpret_stmt(state, if_->alt);
+      case ExprType::kAddExpr: {
+        auto add = static_cast<const AddExpr*>(expr);
+        word left = interpret(state, add->left);
+        word right = interpret(state, add->right);
+        return left + right;
       }
-      break;
-    }
-    default: {
-      UNREACHABLE("unsupported stmt type");
-      break;
+      case ExprType::kVarRef: {
+        return state->vars[static_cast<const VarRef*>(expr)->offset];
+      }
+      case ExprType::kVarAssign: {
+        auto assign = static_cast<const VarAssign*>(expr);
+        word result = interpret(state, assign->right);
+        state->vars[assign->left->offset] = result;
+        return result;
+      }
+      case ExprType::kLessThan: {
+        auto less = static_cast<const LessThan*>(expr);
+        word left = interpret(state, less->left);
+        word right = interpret(state, less->right);
+        return left < right;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
     }
   }
-}
+  // ...
+};
+```
+
+Note that `interpret(State*, Expr*)` returns a `word` because expressions have
+values. `interpret(State*, Stmt*)`, on the other hand, returns no values:
+
+```c++
+class Interpreter : public Evaluator {
+ public:
+  // ...
+  virtual void interpret(State* state, const Stmt* stmt) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        interpret(state, static_cast<const ExprStmt*>(stmt)->expr);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = static_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          interpret(state, block->body[i]);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = static_cast<const IfStmt*>(stmt);
+        word result = interpret(state, if_->cond);
+        if (result) {
+          interpret(state, if_->cons);
+        } else {
+          interpret(state, if_->alt);
+        }
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
+  }
+};
 ```
 
 There are no compound conditionals, but if you were to add them, the
 interpreter and test suite would be a good place to specify the semantics. (Is
-`and` eager? Short-circuiting?)
+`and` eager? Short-circuiting? etc)
 
 ## Tests
 
@@ -422,7 +444,7 @@ Now that we have the tests, we can run them on our implementations. I made the
 test runner polymorphic from the beginning because I knew that we would have
 multiple implementations to test on the same test cases.
 
-The function `test_interp` is not very interesting (it's a for loop with a
+The function `test_interpreter` is not very interesting (it's a for loop with a
 function call) so I have omitted it in the interest of brevity. Feel free to
 check out the implementation [in the repo](https://github.com/tekknolagi/ddcg).
 
@@ -430,9 +452,9 @@ check out the implementation [in the repo](https://github.com/tekknolagi/ddcg).
 int main() {
   // ...
   fprintf(stderr, "Testing interpreter (expr) ");
-  test_interp(expr_tests, interpret_expr);
+  test_interpreter<Interpreter>(expr_tests);
   fprintf(stderr, "Testing interpreter (stmt) ");
-  test_interp(stmt_tests, interpret_stmt);
+  test_interpreter<Interpreter>(stmt_tests);
 }
 ```
 
@@ -442,11 +464,11 @@ in your terminal:
 ```
 $ ./interp
 Testing interpreter (expr) .......
-Testing jit (expr) .......
 Testing interpreter (stmt) ...........
-Testing jit (stmt) ...........
 $
 ```
+
+This indicates that we have laid a good base upon which we can experiment.
 
 ## Compiler
 
