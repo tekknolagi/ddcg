@@ -611,12 +611,12 @@ class ControlDestinationDrivenJIT : public JIT {
         auto if_ = reinterpret_cast<const IfStmt*>(stmt);
         Label cons;
         Label alt;
+        Label exit;
         compileExpr(if_->cond, Destination::kNowhere,
                     ControlDestination(&cons, &alt, &cons));
         // true:
         __ bind(&cons);
         compileStmt(if_->cons, cdest);
-        Label exit;
         __ jmp(&exit, Assembler::kNearJump);
         // false:
         __ bind(&alt);
@@ -697,6 +697,19 @@ class ControlDestinationDrivenJIT : public JIT {
     }
   }
 
+  template <typename T>
+  void jmpTruthiness(T op, ControlDestination cdest) {
+    __ cmpq(op, Immediate(0));
+    if (cdest.fallthrough == cdest.cons) {
+      __ jcc(EQUAL, cdest.alt, Assembler::kNearJump);
+    } else if (cdest.fallthrough == cdest.alt) {
+      __ jcc(NOT_EQUAL, cdest.cons, Assembler::kNearJump);
+    } else {
+      __ jcc(NOT_EQUAL, cdest.cons, Assembler::kNearJump);
+      __ jmp(cdest.alt, Assembler::kNearJump);
+    }
+  }
+
   void plug(Destination dest, ControlDestination cdest, Register reg) {
     switch (dest) {
       case Destination::kStack: {
@@ -711,15 +724,7 @@ class ControlDestinationDrivenJIT : public JIT {
         break;
       }
       case Destination::kNowhere: {
-        __ cmpq(reg, Immediate(0));
-        if (cdest.fallthrough == cdest.cons) {
-          __ jcc(NOT_EQUAL, cdest.alt, Assembler::kNearJump);
-        } else if (cdest.fallthrough == cdest.alt) {
-          __ jcc(EQUAL, cdest.cons, Assembler::kNearJump);
-        } else {
-          __ jcc(EQUAL, cdest.cons, Assembler::kNearJump);
-          __ jmp(cdest.alt, Assembler::kNearJump);
-        }
+        jmpTruthiness(reg, cdest);
         break;
       }
     }
@@ -738,7 +743,7 @@ class ControlDestinationDrivenJIT : public JIT {
         break;
       }
       case Destination::kNowhere: {
-        UNREACHABLE("TODO(max): see how to generate this code");
+        jmpTruthiness(mem, cdest);
         break;
       }
     }
@@ -857,6 +862,32 @@ int main() {
                new VarRef(2), new AddExpr(new VarRef(0), new VarRef(1)))),
        }),
        State{}.set(0, 123).set(1, 456).set(2, 123 + 456)},
+      {new BlockStmt({
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(123))),
+           // Test memory (the var ref) with a destination of nowhere.
+           new ExprStmt(new VarRef(0)),
+       }),
+       State{}.set(0, 123)},
+      {new BlockStmt({
+      // TODO(max): Use beginning state instead of explicit VarAssign
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(1))),
+           new IfStmt(
+               new VarRef(0),
+               new ExprStmt(new VarAssign(new VarRef(1), new IntLit(2))),
+               new ExprStmt(new VarAssign(new VarRef(1), new IntLit(3)))),
+
+       }),
+       State{}.set(0, 1).set(1, 2)},
+      {new BlockStmt({
+      // TODO(max): Use beginning state instead of explicit VarAssign
+           new ExprStmt(new VarAssign(new VarRef(0), new IntLit(0))),
+           new IfStmt(
+               new VarRef(0),
+               new ExprStmt(new VarAssign(new VarRef(1), new IntLit(2))),
+               new ExprStmt(new VarAssign(new VarRef(1), new IntLit(3)))),
+
+       }),
+       State{}.set(0, 0).set(1, 3)},
       // TODO(max): Test nested if
       {nullptr, State{}},
   };
