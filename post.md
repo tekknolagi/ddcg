@@ -1001,6 +1001,8 @@ destinations*.
 
 ## Conclusion
 
+See also Charlie Cummings' [excellent blog post](https://redvice.org/2023/template-jits/)
+
 
 <br />
 <hr style="width: 100px;" />
