@@ -186,7 +186,6 @@ class Interpreter : public Evaluator {
 
 #define __ as.
 
-
 // TODO(max): Fix camelCase vs snake_case naming conventions in this file
 
 MemoryRegion finalizeCode(Assembler* as) {
@@ -532,27 +531,25 @@ class DestinationDrivenJIT : public JIT {
   }
 };
 
-struct ControlDestination {
-  explicit ControlDestination(Label* cons, Label* alt) : cons(cons), alt(alt) {}
-  explicit ControlDestination(Label* cons, Label* alt, Label* fallthrough)
-      : cons(cons), alt(alt), fallthrough(fallthrough) {}
-  bool isUseful() const { return !(cons == alt && alt == fallthrough); }
+struct ControlDestination2 {
+  explicit ControlDestination2(Label* cons, Label* alt)
+      : cons(cons), alt(alt) {}
+  bool isUseful() const { return cons != alt; }
   Label* cons{nullptr};
   Label* alt{nullptr};
-  Label* fallthrough{nullptr};
 };
 
-class ControlDestinationDrivenJIT : public JIT {
+class ControlDestination2DrivenJIT : public JIT {
  public:
   virtual void compileExpr(const Expr* expr) {
     Label next;
     compileExpr(expr, Destination::kAccumulator,
-                ControlDestination(&next, &next, &next));
+                ControlDestination2(&next, &next));
     __ bind(&next);
   }
 
   void compileExpr(const Expr* expr, Destination dest,
-                   ControlDestination cdest) {
+                   ControlDestination2 cdest) {
     Register tmp = RCX;
     switch (expr->type) {
       case ExprType::kIntLit: {
@@ -599,11 +596,11 @@ class ControlDestinationDrivenJIT : public JIT {
 
   virtual void compileStmt(const Stmt* stmt) {
     Label next;
-    compileStmt(stmt, ControlDestination(&next, &next, &next));
+    compileStmt(stmt, ControlDestination2(&next, &next));
     __ bind(&next);
   }
 
-  virtual void compileStmt(const Stmt* stmt, ControlDestination cdest) {
+  virtual void compileStmt(const Stmt* stmt, ControlDestination2 cdest) {
     switch (stmt->type) {
       case StmtType::kExpr: {
         compileExpr(static_cast<const ExprStmt*>(stmt)->expr,
@@ -614,7 +611,7 @@ class ControlDestinationDrivenJIT : public JIT {
         auto block = static_cast<const BlockStmt*>(stmt);
         for (size_t i = 0; i < block->body.size(); i++) {
           Label next;
-          compileStmt(block->body[i], ControlDestination(&next, &next, &next));
+          compileStmt(block->body[i], ControlDestination2(&next, &next));
           __ bind(&next);
         }
         break;
@@ -625,7 +622,7 @@ class ControlDestinationDrivenJIT : public JIT {
         Label alt;
         Label exit;
         compileExpr(if_->cond, Destination::kNowhere,
-                    ControlDestination(&cons, &alt, &cons));
+                    ControlDestination2(&cons, &alt));
         // true:
         __ bind(&cons);
         compileStmt(if_->cons, cdest);
@@ -644,7 +641,224 @@ class ControlDestinationDrivenJIT : public JIT {
     }
   }
 
-  virtual void plug(Destination dest, ControlDestination cdest,
+  virtual void plug(Destination dest, ControlDestination2 cdest,
+                    Condition cond) {
+    switch (dest) {
+      case Destination::kStack: {
+        UNREACHABLE("TODO(max): implement plug(stack, cond)");
+        break;
+      }
+      case Destination::kAccumulator: {
+        Label materialize_true;
+        __ jcc(cond, &materialize_true, Assembler::kNearJump);
+        __ movq(RAX, Immediate(0));
+        __ jmp(cdest.alt, Assembler::kNearJump);
+        __ bind(&materialize_true);
+        __ movq(RAX, Immediate(1));
+        __ jmp(cdest.cons, Assembler::kNearJump);
+        break;
+      }
+      case Destination::kNowhere: {
+        __ jcc(cond, cdest.cons, Assembler::kNearJump);
+        __ jmp(cdest.alt, Assembler::kNearJump);
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination2 cdest, Immediate imm) {
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(imm);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, imm);
+        break;
+      }
+      case Destination::kNowhere: {
+        if (!cdest.isUseful()) {
+          // Nothing to do; not supposed to be materialized anywhere. Likely
+          // from an ExprStmt.
+          return;
+        }
+        if (imm.value()) {
+          __ jmp(cdest.cons, Assembler::kNearJump);
+        } else {
+          __ jmp(cdest.alt, Assembler::kNearJump);
+        }
+        break;
+      }
+    }
+  }
+
+  template <typename T>
+  void jmpTruthiness(T op, ControlDestination2 cdest) {
+    if (!cdest.isUseful()) {
+      // Sometimes the input is ControlDestination2(next, next), in which
+      // case there is no need at all to check the truthiness of the input.
+      // Nobody depends on it.
+      return;
+    }
+    cmpZero(op);
+    __ jcc(NOT_EQUAL, cdest.cons, Assembler::kNearJump);
+    __ jmp(cdest.alt, Assembler::kNearJump);
+  }
+
+  void plug(Destination dest, ControlDestination2 cdest, Register reg) {
+    switch (dest) {
+      case Destination::kStack: {
+        UNREACHABLE("TODO(max): see how to generate this code");
+        __ pushq(reg);
+        break;
+      }
+      case Destination::kAccumulator: {
+        // Nothing to do; reg already in RAX or it's not supposed to materialize
+        // anywhere
+        DCHECK(reg == RAX, "expect RAX to be accumulator");
+        break;
+      }
+      case Destination::kNowhere: {
+        jmpTruthiness(reg, cdest);
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination2 cdest, Address mem) {
+    Register tmp = RCX;
+    switch (dest) {
+      case Destination::kStack: {
+        __ movq(tmp, mem);
+        __ pushq(tmp);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, mem);
+        break;
+      }
+      case Destination::kNowhere: {
+        jmpTruthiness(mem, cdest);
+        break;
+      }
+    }
+  }
+};
+
+struct ControlDestination3 {
+  explicit ControlDestination3(Label* cons, Label* alt)
+      : cons(cons), alt(alt) {}
+  explicit ControlDestination3(Label* cons, Label* alt, Label* fallthrough)
+      : cons(cons), alt(alt), fallthrough(fallthrough) {}
+  bool isUseful() const { return !(cons == alt && alt == fallthrough); }
+  Label* cons{nullptr};
+  Label* alt{nullptr};
+  Label* fallthrough{nullptr};
+};
+
+class ControlDestination3DrivenJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    Label next;
+    compileExpr(expr, Destination::kAccumulator,
+                ControlDestination3(&next, &next, &next));
+    __ bind(&next);
+  }
+
+  void compileExpr(const Expr* expr, Destination dest,
+                   ControlDestination3 cdest) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        word value = static_cast<const IntLit*>(expr)->value;
+        plug(dest, cdest, Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = static_cast<const AddExpr*>(expr);
+        compileExpr(add->left, Destination::kStack, cdest);
+        compileExpr(add->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ addq(RAX, tmp);
+        plug(dest, cdest, RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        word offset = static_cast<const VarRef*>(expr)->offset;
+        plug(dest, cdest, varAt(offset));
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = static_cast<const VarAssign*>(expr);
+        compileExpr(assign->right, Destination::kAccumulator, cdest);
+        __ movq(varAt(assign->left->offset), RAX);
+        plug(dest, cdest, RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = static_cast<const LessThan*>(expr);
+        compileExpr(less->left, Destination::kStack, cdest);
+        compileExpr(less->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ cmpq(tmp, RAX);
+        plug(dest, cdest, LESS);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+
+  virtual void compileStmt(const Stmt* stmt) {
+    Label next;
+    compileStmt(stmt, ControlDestination3(&next, &next, &next));
+    __ bind(&next);
+  }
+
+  virtual void compileStmt(const Stmt* stmt, ControlDestination3 cdest) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExpr(static_cast<const ExprStmt*>(stmt)->expr,
+                    Destination::kNowhere, cdest);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = static_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          Label next;
+          compileStmt(block->body[i], ControlDestination3(&next, &next, &next));
+          __ bind(&next);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = static_cast<const IfStmt*>(stmt);
+        Label cons;
+        Label alt;
+        Label exit;
+        compileExpr(if_->cond, Destination::kNowhere,
+                    ControlDestination3(&cons, &alt, &cons));
+        // true:
+        __ bind(&cons);
+        compileStmt(if_->cons, cdest);
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt, cdest);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
+  }
+
+  virtual void plug(Destination dest, ControlDestination3 cdest,
                     Condition cond) {
     switch (dest) {
       case Destination::kStack: {
@@ -679,7 +893,7 @@ class ControlDestinationDrivenJIT : public JIT {
     }
   }
 
-  void plug(Destination dest, ControlDestination cdest, Immediate imm) {
+  void plug(Destination dest, ControlDestination3 cdest, Immediate imm) {
     switch (dest) {
       case Destination::kStack: {
         __ pushq(imm);
@@ -706,9 +920,9 @@ class ControlDestinationDrivenJIT : public JIT {
   }
 
   template <typename T>
-  void jmpTruthiness(T op, ControlDestination cdest) {
+  void jmpTruthiness(T op, ControlDestination3 cdest) {
     if (!cdest.isUseful()) {
-      // Sometimes the input is ControlDestination(next, next, next), in which
+      // Sometimes the input is ControlDestination3(next, next, next), in which
       // case there is no need at all to check the truthiness of the input.
       // Nobody depends on it.
       return;
@@ -726,7 +940,7 @@ class ControlDestinationDrivenJIT : public JIT {
     }
   }
 
-  void plug(Destination dest, ControlDestination cdest, Register reg) {
+  void plug(Destination dest, ControlDestination3 cdest, Register reg) {
     switch (dest) {
       case Destination::kStack: {
         UNREACHABLE("TODO(max): see how to generate this code");
@@ -746,7 +960,7 @@ class ControlDestinationDrivenJIT : public JIT {
     }
   }
 
-  void plug(Destination dest, ControlDestination cdest, Address mem) {
+  void plug(Destination dest, ControlDestination3 cdest, Address mem) {
     Register tmp = RCX;
     switch (dest) {
       case Destination::kStack: {
@@ -855,11 +1069,16 @@ word perc_change(word before, word after) {
 void compare_jit(Stmt* stmt) {
   word baseline_size = code_size<BaselineJIT>(stmt);
   word dest_driven_size = code_size<DestinationDrivenJIT>(stmt);
-  word control_dest_size = code_size<ControlDestinationDrivenJIT>(stmt);
-  fprintf(stderr, "b: %ld\td: %ld (%ld%%)\tc: %ld (%ld%%)\n", baseline_size,
-          dest_driven_size, perc_change(baseline_size, dest_driven_size),
-          control_dest_size, perc_change(baseline_size, control_dest_size));
-  CHECK(control_dest_size <= dest_driven_size,
+  word control_dest2_size = code_size<ControlDestination2DrivenJIT>(stmt);
+  word control_dest3_size = code_size<ControlDestination3DrivenJIT>(stmt);
+  fprintf(stderr, "b: %ld\td: %ld (%ld%%)\tc2: %ld (%ld%%)\tc3: %ld (%ld%%)\n",
+          baseline_size, dest_driven_size,
+          perc_change(baseline_size, dest_driven_size), control_dest2_size,
+          perc_change(baseline_size, control_dest2_size), control_dest3_size,
+          perc_change(baseline_size, control_dest3_size));
+  CHECK(control_dest2_size <= dest_driven_size,
+        "control destinations didn't help code size!");
+  CHECK(control_dest3_size <= control_dest2_size,
         "control destinations didn't help code size!");
 }
 
@@ -971,8 +1190,12 @@ int main() {
   test_interpreter<DestinationDrivenJIT>(expr_tests);
   fprintf(stderr, "Testing destination jit (stmt) ");
   test_interpreter<DestinationDrivenJIT>(stmt_tests);
-  fprintf(stderr, "Testing control destination jit (expr) ");
-  test_interpreter<ControlDestinationDrivenJIT>(expr_tests);
-  fprintf(stderr, "Testing control destination jit (stmt) ");
-  test_interpreter<ControlDestinationDrivenJIT>(stmt_tests);
+  fprintf(stderr, "Testing control destination 2 jit (expr) ");
+  test_interpreter<ControlDestination2DrivenJIT>(expr_tests);
+  fprintf(stderr, "Testing control destination 2 jit (stmt) ");
+  test_interpreter<ControlDestination2DrivenJIT>(stmt_tests);
+  fprintf(stderr, "Testing control destination 3 jit (expr) ");
+  test_interpreter<ControlDestination3DrivenJIT>(expr_tests);
+  fprintf(stderr, "Testing control destination 3 jit (stmt) ");
+  test_interpreter<ControlDestination3DrivenJIT>(stmt_tests);
 }
