@@ -960,7 +960,7 @@ class DestinationDrivenJIT : public JIT {
 
 The generated code for the `IfStmt` example is slightly less impressive than
 for `AddExpr`. While it reduces the number of instructions and elides the
-`setcc` dance, there is still a bunch of jumping around.
+`setcc` dance, there is still a bunch of unnecessary code.
 
 ```c++
 Stmt* stmt = new IfStmt(new LessThan(new IntLit(1), new IntLit(2)),
@@ -978,10 +978,10 @@ fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
 // 0x62100005790B    59                     pop rcx
 // 0x62100005790C    483bc8                 cmpq rcx,rax
 // 0x62100005790F    7d07                   jge 0X0000621000057918
-// 0x621000057911    b801000000             movl rax,1
+// 0x621000057911    b801000000             movl rax,1     <-- result of comparison
 // 0x621000057916    eb05                   jmp 0X000062100005791D
-// 0x621000057918    b800000000             movl rax,0
-// 0x62100005791D    4885c0                 testq rax,rax
+// 0x621000057918    b800000000             movl rax,0     <-- result of comparison
+// 0x62100005791D    4885c0                 testq rax,rax  <-- why do we need this?
 // 0x621000057920    740a                   jz 0X000062100005792C
 // 0x621000057922    b87b000000             movl rax,0X7B
 // 0x621000057927    488907                 movq [rdi],rax
@@ -994,14 +994,301 @@ fprintf(stderr, "code size: %ld bytes\n", jit.codeSize());
 // code size: 57 bytes
 ```
 
+See how we materialize the result of the comparison in `rax` and then test it?
+That's totally unnecessary. We already know what branch the code should take
+depending on the flags set by the `cmpq`. Just jump straight there.
+
 The good news is that we can remove the jumping around with *control
 destinations*.
 
 ### Add control destinations
 
+The idea of control destinations is similar to data destinations: pass in the
+available jump locations from the top down so that the inner code that does the
+comparison can use them. Concretely, it is a struct containing some number of
+labels.
+
+Millikin's talk starts off with a simple definition: a "then" (I call it
+"cons") and an "else" (I call it "alt").
+
+```c++
+struct ControlDestination2 {
+  explicit ControlDestination2(Label* cons, Label* alt) : cons(cons), alt(alt) {}
+  bool isUseful() const { return cons != alt; }
+  Label* cons{nullptr};
+  Label* alt{nullptr};
+};
+```
+
+With that, you can do quite a bit better. Not a whole lot changes except for in
+the implementations of `LessThan` and `If`, so I'll show those here.
+
+Whereas in `DestinationDrivenJIT` the implementation of `LessThan` does
+conditional assignment of `0` or `1` to a register, in
+`ControlDestination2DrivenJIT` the implementation plugs in the given control
+destination.
+
+```c++
+class ControlDestination2DrivenJIT : public JIT {
+ public:
+  // ...
+  void compileExpr(const Expr* expr, Destination dest,
+                   ControlDestination2 cdest) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      // ...
+      case ExprType::kLessThan: {
+        auto less = static_cast<const LessThan*>(expr);
+        compileExpr(less->left, Destination::kStack, cdest);
+        compileExpr(less->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ cmpq(tmp, RAX);
+        plug(dest, cdest, LESS);
+        break;
+      }
+      // ...
+    }
+    // ...
+  }
+}
+```
+
+
+
+```c++
+class ControlDestination2DrivenJIT : public JIT {
+ public:
+  virtual void compileExpr(const Expr* expr) {
+    Label next;
+    compileExpr(expr, Destination::kAccumulator,
+                ControlDestination2(&next, &next));
+    __ bind(&next);
+  }
+
+  void compileExpr(const Expr* expr, Destination dest,
+                   ControlDestination2 cdest) {
+    Register tmp = RCX;
+    switch (expr->type) {
+      case ExprType::kIntLit: {
+        word value = static_cast<const IntLit*>(expr)->value;
+        plug(dest, cdest, Immediate(value));
+        break;
+      }
+      case ExprType::kAddExpr: {
+        auto add = static_cast<const AddExpr*>(expr);
+        compileExpr(add->left, Destination::kStack, cdest);
+        compileExpr(add->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ addq(RAX, tmp);
+        plug(dest, cdest, RAX);
+        break;
+      }
+      case ExprType::kVarRef: {
+        word offset = static_cast<const VarRef*>(expr)->offset;
+        plug(dest, cdest, varAt(offset));
+        break;
+      }
+      case ExprType::kVarAssign: {
+        auto assign = static_cast<const VarAssign*>(expr);
+        compileExpr(assign->right, Destination::kAccumulator, cdest);
+        __ movq(varAt(assign->left->offset), RAX);
+        plug(dest, cdest, RAX);
+        break;
+      }
+      case ExprType::kLessThan: {
+        auto less = static_cast<const LessThan*>(expr);
+        compileExpr(less->left, Destination::kStack, cdest);
+        compileExpr(less->right, Destination::kAccumulator, cdest);
+        __ popq(tmp);
+        __ cmpq(tmp, RAX);
+        plug(dest, cdest, LESS);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported expr type");
+        break;
+      }
+    }
+  }
+
+  virtual void compileStmt(const Stmt* stmt) {
+    Label next;
+    compileStmt(stmt, ControlDestination2(&next, &next));
+    __ bind(&next);
+  }
+
+  virtual void compileStmt(const Stmt* stmt, ControlDestination2 cdest) {
+    switch (stmt->type) {
+      case StmtType::kExpr: {
+        compileExpr(static_cast<const ExprStmt*>(stmt)->expr,
+                    Destination::kNowhere, cdest);
+        break;
+      }
+      case StmtType::kBlock: {
+        auto block = static_cast<const BlockStmt*>(stmt);
+        for (size_t i = 0; i < block->body.size(); i++) {
+          Label next;
+          compileStmt(block->body[i], ControlDestination2(&next, &next));
+          __ bind(&next);
+        }
+        break;
+      }
+      case StmtType::kIf: {
+        auto if_ = static_cast<const IfStmt*>(stmt);
+        Label cons;
+        Label alt;
+        Label exit;
+        compileExpr(if_->cond, Destination::kNowhere,
+                    ControlDestination2(&cons, &alt));
+        // true:
+        __ bind(&cons);
+        compileStmt(if_->cons, cdest);
+        __ jmp(&exit, Assembler::kNearJump);
+        // false:
+        __ bind(&alt);
+        compileStmt(if_->alt, cdest);
+        // exit:
+        __ bind(&exit);
+        break;
+      }
+      default: {
+        UNREACHABLE("unsupported stmt type");
+        break;
+      }
+    }
+  }
+
+  virtual void plug(Destination dest, ControlDestination2 cdest,
+                    Condition cond) {
+    switch (dest) {
+      case Destination::kStack: {
+        UNREACHABLE("TODO(max): implement plug(stack, cond)");
+        break;
+      }
+      case Destination::kAccumulator: {
+        Label materialize_true;
+        __ jcc(cond, &materialize_true, Assembler::kNearJump);
+        __ movq(RAX, Immediate(0));
+        __ jmp(cdest.alt, Assembler::kNearJump);
+        __ bind(&materialize_true);
+        __ movq(RAX, Immediate(1));
+        __ jmp(cdest.cons, Assembler::kNearJump);
+        break;
+      }
+      case Destination::kNowhere: {
+        __ jcc(cond, cdest.cons, Assembler::kNearJump);
+        __ jmp(cdest.alt, Assembler::kNearJump);
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination2 cdest, Immediate imm) {
+    switch (dest) {
+      case Destination::kStack: {
+        __ pushq(imm);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, imm);
+        break;
+      }
+      case Destination::kNowhere: {
+        if (!cdest.isUseful()) {
+          // Nothing to do; not supposed to be materialized anywhere. Likely
+          // from an ExprStmt.
+          return;
+        }
+        if (imm.value()) {
+          __ jmp(cdest.cons, Assembler::kNearJump);
+        } else {
+          __ jmp(cdest.alt, Assembler::kNearJump);
+        }
+        break;
+      }
+    }
+  }
+
+  template <typename T>
+  void jmpTruthiness(T op, ControlDestination2 cdest) {
+    if (!cdest.isUseful()) {
+      // Sometimes the input is ControlDestination2(next, next), in which
+      // case there is no need at all to check the truthiness of the input.
+      // Nobody depends on it.
+      return;
+    }
+    cmpZero(op);
+    __ jcc(NOT_EQUAL, cdest.cons, Assembler::kNearJump);
+    __ jmp(cdest.alt, Assembler::kNearJump);
+  }
+
+  void plug(Destination dest, ControlDestination2 cdest, Register reg) {
+    switch (dest) {
+      case Destination::kStack: {
+        UNREACHABLE("TODO(max): see how to generate this code");
+        __ pushq(reg);
+        break;
+      }
+      case Destination::kAccumulator: {
+        // Nothing to do; reg already in RAX or it's not supposed to materialize
+        // anywhere
+        DCHECK(reg == RAX, "expect RAX to be accumulator");
+        break;
+      }
+      case Destination::kNowhere: {
+        jmpTruthiness(reg, cdest);
+        break;
+      }
+    }
+  }
+
+  void plug(Destination dest, ControlDestination2 cdest, Address mem) {
+    Register tmp = RCX;
+    switch (dest) {
+      case Destination::kStack: {
+        __ movq(tmp, mem);
+        __ pushq(tmp);
+        break;
+      }
+      case Destination::kAccumulator: {
+        __ movq(RAX, mem);
+        break;
+      }
+      case Destination::kNowhere: {
+        jmpTruthiness(mem, cdest);
+        break;
+      }
+    }
+  }
+};
+```
+
+
+```c++
+struct ControlDestination3 {
+  explicit ControlDestination3(Label* cons, Label* alt) : cons(cons), alt(alt) {}
+  explicit ControlDestination3(Label* cons, Label* alt, Label* fallthrough)
+      : cons(cons), alt(alt), fallthrough(fallthrough) {}
+  bool isUseful() const { return !(cons == alt && alt == fallthrough); }
+  Label* cons{nullptr};
+  Label* alt{nullptr};
+  Label* fallthrough{nullptr};
+};
+```
+
 ## Conclusion
 
 See also Charlie Cummings' [excellent blog post](https://redvice.org/2023/template-jits/)
+
+See also push/pop with a register stack https://github.com/k0kubun/ruby-jit-challenge
+
+```ruby
+STACK = [:r8, :r9]
+
+in :putobject_INT2FIX_1_
+  asm.mov(STACK[stack_size], C.to_value(1))
+  stack_size += 1
+```
 
 
 <br />

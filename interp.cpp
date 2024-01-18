@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <ostream>
+#include <iostream>
 
 #include "dis.h"
 #include "dis/assembler-x64.h"
@@ -92,6 +94,143 @@ struct IfStmt : public Stmt {
   Stmt* cons;
   Stmt* alt;
 };
+
+
+template <typename T>
+struct ParseResult {
+  ParseResult(T *result, const char* next) : result(result), next(next){}
+  bool isError() const { return result == nullptr; }
+
+  // Let ParseResult<T> pretend to be a subtype of ParseResult<S> when T is a subtype of
+  // S.
+  template <typename S>
+  operator const ParseResult<S> &() const {
+    static_assert(std::is_base_of<S, T>::value, "Only up-casts are permitted");
+    return *reinterpret_cast<const ParseResult<S>*>(this);
+  }
+
+  T *result;
+  const char *next;
+};
+
+class Parser {
+  public:
+  ParseResult<Expr> readVarAssign(const char* src) {
+    ParseResult<VarRef> left = readVarRef(src);
+    if (left.isError()) return left;
+    src = skipws(left.next);
+    if (match('=', &src)) {
+      ParseResult<Expr> right = readExpr(src);
+      if (right.isError()) return right;
+      src = right.next;
+      return ParseResult<Expr>(new VarAssign(left.result, right.result), src);
+    }
+    return ParseResult<Expr>(left.result, src);
+  }
+
+  ParseResult<Expr> readExpr(const char* src) {
+    src = skipws(src);
+    if (std::isdigit(*src)) return readIntLit;
+  }
+
+  ParseResult<Expr> readIntLit(const char* src) {
+    src = skipws(src);
+    DCHECK(std::isdigit(*src), "expected number to start with digit but found %c", *src);
+    char digits[32 + 1] = {};
+    int chars_read;
+    int items_read = std::sscanf(src, "%32[0-9]%n", digits, &chars_read);
+    DCHECK(items_read == 1, "sscanf failure");
+    errno = 0;
+    word result = std::strtol(digits, nullptr, 10);
+    DCHECK(errno == 0, "could not parse digits '%s'", digits);
+    return ParseResult<Expr>(new IntLit(result), src+chars_read);
+  }
+
+  ParseResult<VarRef> readVarRef(const char* src) {
+    src = skipws(src);
+    DCHECK(std::isalpha(*src), "expected variable name to start with letter but found %c", *src);
+    char varname[32 + 1] = {};
+    int chars_read;
+    int items_read = std::sscanf(src, "%32[a-zA-z]%n", varname, &chars_read);
+    DCHECK(items_read == 1, "sscanf failure");
+    word varidx = lookupOrAdd(varname);
+    return ParseResult<VarRef>(new VarRef(varidx), src+chars_read);
+  }
+
+  bool match(char c, const char** src) {
+    if (**src == c) {
+      *src += 1;
+      return true;
+    }
+    return false;
+  }
+
+  // ParseResult<Expr> readAdd(const char* src) {
+  //   ParseResult<Expr> left = readOne(src);
+  //   if (left.isError()) return left;
+  //   src = skipws(left.next);
+  //   Expr* result = left.result;
+  //   while (match('+', &src)) {
+  //     ParseResult<Expr> right = readOne(src);
+  //     if (right.isError()) return right;
+  //     src = right.next;
+  //     result = new AddExpr(left, right);
+  //   }
+  //   return ParseResult(result, src);
+  // }
+
+  // ParseResult<Stmt> readStmt(const char* src);
+
+  private:
+  void pushScope() {
+    scopes.push_back(vars.size());
+  }
+
+  void popScope() {
+    uword prev_size = scopes.back();
+    scopes.pop_back();
+    vars.resize(prev_size);
+  }
+
+  word lookupOrAdd(const std::string& varname) {
+    for (word i = vars.size() - 1; i >= 0; i--) {
+      if (vars[i] == varname) return i;
+    }
+    word result = vars.size();
+    vars.push_back(varname);
+    return result;
+  }
+
+  static const char *skipws(const char *src) {
+    while (isspace(*src)) {
+      src++;
+    }
+    return src;
+  }
+
+  std::vector<uword> scopes;
+  std::vector<std::string> vars;
+};
+
+std::ostream& operator<<(std::ostream& os, const Expr* expr) {
+  switch (expr->type) {
+    case ExprType::kIntLit: {
+      os << static_cast<const IntLit*>(expr)->value;
+      return os;
+    }
+    case ExprType::kVarRef: {
+      os << "v" << static_cast<const VarRef*>(expr)->offset;
+      return os;
+    }
+    case ExprType::kVarAssign: {
+      const VarAssign* assign = static_cast<const VarAssign*>(expr);
+      os << assign->left << " = " << assign->right;
+      return os;
+    }
+    default:
+    UNREACHABLE("unknown type");
+  }
+}
 
 constexpr word kNumVars = 26;
 
@@ -993,6 +1132,11 @@ struct StmtTest {
   State expected;
 };
 
+struct ExprParseTest {
+  const char* src;
+  Expr* expected;
+};
+
 void print_results(const std::vector<word>& failed) {
   if (failed.size()) {
     fprintf(stderr, "Failed tests:");
@@ -1047,6 +1191,48 @@ void test_interpreter(StmtTest tests[]) {
   }
   if (total_size) {
     fprintf(stderr, " (%ld bytes)", total_size);
+  }
+  fprintf(stderr, "\n");
+  print_results(failed);
+}
+
+bool equal(const Expr* actual, const Expr* expected) {
+  DCHECK(expected != nullptr, "unexpected null expression");
+  if (actual == nullptr) {
+    return false;
+  }
+  if (actual->type != expected->type) {
+    return false;
+  }
+  switch (expected->type) {
+    case ExprType::kIntLit: {
+      return static_cast<const IntLit*>(actual)->value == static_cast<const IntLit*>(expected)->value;
+    }
+    case ExprType::kVarRef: {
+      return static_cast<const VarRef*>(actual)->offset == static_cast<const VarRef*>(expected)->offset;
+    }
+    case ExprType::kVarAssign: {
+      const VarAssign *actual_assign = static_cast<const VarAssign*>(actual);
+      const VarAssign *expected_assign = static_cast<const VarAssign*>(expected);
+      return equal(actual_assign->left, expected_assign->left) && equal(actual_assign->right, expected_assign->right);
+    }
+    default:
+      UNREACHABLE("unknown expr type");
+  }
+}
+
+void test_expr_parser(ExprParseTest tests[]) {
+  std::vector<word> failed;
+  word total_size = 0;
+  for (word i = 0; tests[i].src != nullptr; i++) {
+    Parser parser;
+    ParseResult<Expr> result = parser.readExpr(tests[i].src);
+    if (result.isError() || !equal(result.result, tests[i].expected)) {
+      failed.push_back(i);
+      fprintf(stderr, "E");
+      continue;
+    }
+    fprintf(stderr, ".");
   }
   fprintf(stderr, "\n");
   print_results(failed);
@@ -1178,6 +1364,16 @@ int main() {
       // TODO(max): Test nested if
       {nullptr, State{}},
   };
+  ExprParseTest expr_parse_tests[] = {
+    {"123", new IntLit(123)},
+    {"abc", new VarRef(0)},
+    {"abc + abc", new AddExpr(new VarRef(0), new VarRef(0))},
+    {"abc + xyz", new AddExpr(new VarRef(0), new VarRef(1))},
+    {"abc = 123", new VarAssign(new VarRef(0), new IntLit(123))},
+    {nullptr, nullptr}
+  };
+  fprintf(stderr, "Testing parser (expr) ");
+  test_expr_parser(expr_parse_tests);
   fprintf(stderr, "Testing interpreter (expr) ");
   test_interpreter<Interpreter>(expr_tests);
   fprintf(stderr, "Testing interpreter (stmt) ");
@@ -1198,4 +1394,11 @@ int main() {
   test_interpreter<ControlDestination3DrivenJIT>(expr_tests);
   fprintf(stderr, "Testing control destination 3 jit (stmt) ");
   test_interpreter<ControlDestination3DrivenJIT>(stmt_tests);
+
+  Parser parser;
+  ParseResult<Expr> result = parser.readVarAssign("abc = 123");
+  DCHECK(!result.isError(), "uh oh");
+  DCHECK(result.result != nullptr, "uh oh");
+  std::cerr << result.result << std::endl;
+  DCHECK(result.result->type == ExprType::kVarAssign, "uh oh");
 }
